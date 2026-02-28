@@ -288,7 +288,8 @@ ASHA worker: "Oxygen lekar aa rahi hoon"
          │
          ▼
 ┌─────────────────────────────────────┐
-│   API Gateway + AWS App Runner      │
+│   GO Server API Gateway +           |  
+|  AWS App Runner                     │
 │   (Go 1.21+ Microservices)          │
 │   - High concurrency                │
 │   - <50ms latency                   │
@@ -915,6 +916,6 @@ By combining:
 
 We can build a product that serves **everyone** - from busy urban professionals to elderly citizens to rural farmers - and truly make healthcare simpler for 1 billion+ people.
 
-**The future of health assistance is voice. The future is multilingual. The future is autonomous. The future is Bhasha AI.**
+**The future of health assistance is voice. The future is multilingual. The future is autonomous. The future is Bhasha-Med AI.**
 
 ---
