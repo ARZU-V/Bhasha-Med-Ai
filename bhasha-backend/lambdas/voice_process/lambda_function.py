@@ -117,10 +117,10 @@ CRITICAL RULES:
 SYMPTOMS (headache, fever, pain, etc.):
 - If duration not yet known → ask how long they have had it
 - If other symptoms not yet asked → ask if there are other symptoms
-- Once you know duration AND other symptoms → give advice immediately:
-  * 1-3 days, mild → suggest rest, fluids, paracetamol if needed, and say "if it continues beyond 3 days see a doctor"
-  * 3+ days OR severe/worsening → say "Please see a doctor soon"
-  * Do NOT ask the same question again if already answered
+- Once you know duration AND other symptoms → give advice AND end with exactly one of:
+  * Mild (1-3 days, not severe) → "I suggest you visit a nearby clinic."
+  * Serious (3+ days OR severe/worsening OR recurring) → "I suggest booking an appointment with a doctor."
+- Do NOT ask the same question again if already answered
 
 APPOINTMENTS (book/doctor/clinic/appointment):
 - Step 1: Ask which type of doctor or clinic name (if not known)
@@ -180,12 +180,19 @@ Be warm and caring. Speak like a helpful friend, not a formal doctor."""
         response_lower = response_text.lower()
 
         # English + Hindi/Indian language keywords for each intent
-        booking_user = ['appointment', 'doctor', 'clinic', 'book', 'physician',
-                        'अपॉइंटमेंट', 'डॉक्टर', 'क्लिनिक', 'बुक', 'চিকিৎসক', 'నేను']
-        # Detect booking confirmation in AI's own response (works across all languages)
-        booking_ai = ['appointment request', 'sending your appointment', 'book', 'appointment now',
+        booking_user = ['appointment', 'book', 'physician',
+                        'अपॉइंटमेंट', 'बुक', 'চিকিৎসক']
+        # Detect booking confirmation OR serious-symptom routing in AI response
+        booking_ai = ['appointment request', 'sending your appointment', 'appointment now',
+                      'booking an appointment', 'book an appointment',
+                      'appointment with a doctor', 'appointment with a specialist',
                       'नोट कर लिया', 'अपॉइंटमेंट बुक', 'संपर्क करूंगा', 'बुक कर',
-                      'appointment ke liye']
+                      'डॉक्टर से अपॉइंटमेंट', 'appointment ke liye']
+
+        # AI recommending a nearby clinic walk-in → hospital map
+        hospital_ai = ['visit a nearby clinic', 'nearby clinic', 'nearest clinic',
+                       'visit the nearest', 'walk-in clinic', 'nearest hospital',
+                       'नजदीकी क्लिनिक', 'नजदीकी अस्पताल', 'पास के क्लिनिक']
 
         med_user = ['medicine', 'tablet', 'pill', 'dose', 'remind',
                     'दवा', 'गोली', 'दवाई', 'टैबलेट', 'ওষুধ', 'మందు']
@@ -194,12 +201,15 @@ Be warm and caring. Speak like a helpful friend, not a formal doctor."""
         symptom_user = ['symptom', 'fever', 'headache', 'sick', 'feel', 'pain',
                         'बुखार', 'सिरदर्द', 'दर्द', 'बीमार', 'জ্বর', 'తలనొప్పి']
 
-        if any(w in lower for w in booking_user) or any(w in response_lower for w in booking_ai):
+        # Priority order: emergency > booking > hospital map > medication > general symptom
+        if any(w in lower for w in emergency_user):
+            intent = 'emergency'
+        elif any(w in lower for w in booking_user) or any(w in response_lower for w in booking_ai):
             intent = 'booking'
+        elif any(w in response_lower for w in hospital_ai):
+            intent = 'symptom'
         elif any(w in lower for w in med_user):
             intent = 'medication'
-        elif any(w in lower for w in emergency_user):
-            intent = 'emergency'
         elif any(w in lower for w in symptom_user):
             intent = 'symptom'
 

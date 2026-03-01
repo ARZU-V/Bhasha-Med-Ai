@@ -94,11 +94,14 @@ export default function VoiceTab({ onNavigate }: { onNavigate: (tab: string, dat
         audio.play().catch(console.error);
       }
 
-      // Agentic auto-navigation: emergency → go immediately; booking → after short delay
+      // Agentic auto-navigation
       if (data.intent === 'emergency') {
         setTimeout(() => onNavigate('emergency'), 1500);
+      } else if (data.intent === 'symptom') {
+        // AI recommended a nearby clinic → open hospital map
+        setTimeout(() => onNavigate('hospitals'), 2500);
       } else if (data.intent === 'booking' && data.bookingData?.patientPhone) {
-        // Auto-navigate after user sees the confirmation message
+        // AI collected booking details → open appointments with prefill
         setTimeout(() => onNavigate('appointments', data.bookingData), 2000);
       }
     } catch {
