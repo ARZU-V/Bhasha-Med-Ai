@@ -1,147 +1,150 @@
-import { useState, useRef } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import axios from 'axios';
 import { API_BASE, DEMO_USER_ID } from '../config';
 import { loadProfile } from '../components/ProfileModal';
 
-type Medication = {
-  medicationId: string;
-  name: string;
-  dosage: string;
-  times: string[];
-  takenToday?: boolean;
-};
-
-type MedicineInfo = {
-  what_it_is: string;
-  uses: string;
-  side_effects: string;
-  interactions: string;
-  safe_for_conditions: string;
-  disclaimer: string;
-  name?: string;
-};
-
-type ScannedMed = { name: string; dosage: string; timing: string };
+type Medication  = { medicationId: string; name: string; dosage: string; times: string[]; takenToday?: boolean; };
+type MedicineInfo = { what_it_is: string; uses: string; side_effects: string; interactions: string; safe_for_conditions: string; disclaimer: string; name?: string; };
+type ScannedMed  = { name: string; dosage: string; timing?: string; frequency?: string; instructions?: string; duration?: string; what_it_is?: string; uses?: string; side_effects?: string; interactions?: string; safe_note?: string; };
 
 const TIME_OPTIONS = ['Morning (8 AM)', 'Afternoon (2 PM)', 'Night (9 PM)'];
-const MED_COLORS = [
-  'bg-blue-100 text-blue-700',
-  'bg-purple-100 text-purple-700',
-  'bg-green-100 text-green-700',
-  'bg-orange-100 text-orange-700',
+const MED_HUE = ['bg-blue-50 text-blue-600', 'bg-violet-50 text-violet-600', 'bg-emerald-50 text-emerald-600', 'bg-amber-50 text-amber-600'];
+
+const SCHEDULE_SLOTS = [
+  { label: 'Morning',   icon: '🌅', time: 'Morning (8 AM)',   hour: 8 },
+  { label: 'Afternoon', icon: '☀️', time: 'Afternoon (2 PM)', hour: 14 },
+  { label: 'Night',     icon: '🌙', time: 'Night (9 PM)',     hour: 21 },
 ];
 
-function InfoRow({ icon, label, value }: { icon: string; label: string; value: string }) {
+function getCurrentSlot(): string {
+  const h = new Date().getHours();
+  if (h < 11)  return 'Morning (8 AM)';
+  if (h < 17)  return 'Afternoon (2 PM)';
+  return 'Night (9 PM)';
+}
+
+async function requestNotificationPermission(): Promise<boolean> {
+  if (!('Notification' in window)) return false;
+  if (Notification.permission === 'granted') return true;
+  const result = await Notification.requestPermission();
+  return result === 'granted';
+}
+
+// ── localStorage-backed medication store ─────────────────────────────
+const MEDS_KEY = 'bhasha_meds';
+const loadLocalMeds = (): Medication[] => {
+  try { return JSON.parse(localStorage.getItem(MEDS_KEY) || '[]'); }
+  catch { return []; }
+};
+const saveLocalMeds = (list: Medication[]) =>
+  localStorage.setItem(MEDS_KEY, JSON.stringify(list));
+
+function InfoRow({ label, value }: { label: string; value: string }) {
   if (!value) return null;
   return (
-    <div>
-      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">
-        {icon} {label}
-      </p>
-      <p className="text-sm text-gray-800 leading-relaxed">{value}</p>
+    <div className="space-y-0.5">
+      <p className="label">{label}</p>
+      <p className="text-sm text-ink leading-relaxed">{value}</p>
     </div>
   );
 }
 
 export default function MedicationsTab() {
-  const queryClient = useQueryClient();
-  const profile = loadProfile();
+  const profile     = loadProfile();
   const [activeView, setActiveView] = useState<'meds' | 'check'>('meds');
-  const [showForm, setShowForm] = useState(false);
+  const [showForm,   setShowForm]   = useState(false);
   const [form, setForm] = useState({ name: '', dosage: '', times: [] as string[] });
 
-  // Medicine checker state
-  const [checkName, setCheckName] = useState('');
+  const [checkName,   setCheckName]   = useState('');
   const [checkResult, setCheckResult] = useState<MedicineInfo | null>(null);
-  const [checking, setChecking] = useState(false);
-  const [scanning, setScanning] = useState(false);
+  const [checking,    setChecking]    = useState(false);
+  const [scanning,    setScanning]    = useState(false);
   const [scannedMeds, setScannedMeds] = useState<ScannedMed[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const { data: meds = [], isLoading } = useQuery({
-    queryKey: ['medications'],
-    queryFn: async () => {
-      const { data } = await axios.get(`${API_BASE}/medications?userId=${DEMO_USER_ID}`);
-      return (data.medications ?? []) as Medication[];
+  const [notifGranted,  setNotifGranted]  = useState(Notification?.permission === 'granted');
+  const [notifRequested, setNotifRequested] = useState(false);
+  const currentSlot = getCurrentSlot();
+
+  // ── Medications: localStorage-first, API sync as bonus ──────────────
+  const [meds,      setMeds]      = useState<Medication[]>(loadLocalMeds);
+  const [isLoading, setIsLoading] = useState(false);
+  const [addingMed, setAddingMed] = useState(false);
+
+  useEffect(() => {
+    setIsLoading(true);
+    axios.get(`${API_BASE}/medications?userId=${DEMO_USER_ID}`)
+      .then(({ data }) => {
+        const list = (data.medications ?? []) as Medication[];
+        if (list.length > 0) { setMeds(list); saveLocalMeds(list); }
+      })
+      .catch(() => { /* use localStorage fallback */ })
+      .finally(() => setIsLoading(false));
+  }, []);
+
+  const addMed = {
+    isPending: addingMed,
+    mutate: (med: typeof form) => {
+      setAddingMed(true);
+      const newMed: Medication = {
+        medicationId: `med-${Date.now()}`,
+        name: med.name, dosage: med.dosage, times: med.times, takenToday: false,
+      };
+      const updated = [...meds, newMed].sort((a, b) => a.name.localeCompare(b.name));
+      setMeds(updated); saveLocalMeds(updated);
+      setAddingMed(false); setShowForm(false); setForm({ name: '', dosage: '', times: [] });
+      axios.post(`${API_BASE}/medications`, { ...med, userId: DEMO_USER_ID }).catch(() => {});
     },
-    refetchInterval: 30000,
-  });
-
-  const addMed = useMutation({
-    mutationFn: (med: typeof form) =>
-      axios.post(`${API_BASE}/medications`, { ...med, userId: DEMO_USER_ID }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['medications'] });
-      setShowForm(false);
-      setForm({ name: '', dosage: '', times: [] });
-    },
-  });
-
-  const markTaken = useMutation({
-    mutationFn: (id: string) =>
-      axios.put(`${API_BASE}/medications/${id}/taken`, {
-        userId: DEMO_USER_ID,
-        takenAt: new Date().toISOString(),
-      }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['medications'] }),
-  });
-
-  const toggleTime = (t: string) => {
-    setForm(prev => ({
-      ...prev,
-      times: prev.times.includes(t) ? prev.times.filter(x => x !== t) : [...prev.times, t],
-    }));
   };
+
+  const markTaken = {
+    mutate: (id: string) => {
+      const updated = meds.map((m: Medication) => m.medicationId === id ? { ...m, takenToday: true } : m);
+      setMeds(updated); saveLocalMeds(updated);
+      // Only sync to API if it's a real UUID (not a local timestamp ID)
+      if (!id.startsWith('med-')) {
+        axios.put(`${API_BASE}/medications/${id}/taken`, { userId: DEMO_USER_ID, takenAt: new Date().toISOString() }).catch(() => {});
+      }
+    },
+  };
+
+  // Fire a test notification when permission is newly granted
+  useEffect(() => {
+    if (notifGranted && notifRequested) {
+      new Notification('Bhasha AI Reminder 💊', {
+        body: `Time to check your ${currentSlot.split(' ')[0]} medicines!`,
+        icon: '/favicon.ico',
+      });
+      setNotifRequested(false);
+    }
+  }, [notifGranted, notifRequested, currentSlot]);
+
+  const toggleTime = (t: string) => setForm(prev => ({ ...prev, times: prev.times.includes(t) ? prev.times.filter((x: string) => x !== t) : [...prev.times, t] }));
 
   const checkMedicine = async () => {
     if (!checkName.trim()) return;
-    setChecking(true);
-    setCheckResult(null);
+    setChecking(true); setCheckResult(null);
     try {
-      const { data } = await axios.post(`${API_BASE}/medicine/check`, {
-        medicineName: checkName,
-        userId: DEMO_USER_ID,
-        userConditions: profile?.conditions || [],
-      });
+      const { data } = await axios.post(`${API_BASE}/medicine/check`, { medicineName: checkName, userId: DEMO_USER_ID, userConditions: profile?.conditions || [] });
       setCheckResult(data.info);
     } catch {
-      setCheckResult({
-        what_it_is: 'Could not fetch medicine information.',
-        uses: 'Please try again or consult your pharmacist.',
-        side_effects: '',
-        interactions: '',
-        safe_for_conditions: '',
-        disclaimer: 'Always consult your doctor or pharmacist.',
-        name: checkName,
-      });
-    } finally {
-      setChecking(false);
-    }
+      setCheckResult({ what_it_is: 'Could not fetch medicine information.', uses: 'Please try again or consult your pharmacist.', side_effects: '', interactions: '', safe_for_conditions: '', disclaimer: 'Always consult your doctor.', name: checkName });
+    } finally { setChecking(false); }
   };
 
   const handleScanImage = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    setScanning(true);
-    setScannedMeds([]);
-
+    setScanning(true); setScannedMeds([]);
     const reader = new FileReader();
     reader.onload = async () => {
       const base64 = (reader.result as string).split(',')[1];
       try {
-        const { data } = await axios.post(`${API_BASE}/medicine/scan`, {
-          imageBase64: base64,
-          userId: DEMO_USER_ID,
-          userConditions: profile?.conditions || [],
-        });
-        setScannedMeds(data.medicines || []);
-      } catch {
-        setScannedMeds([{ name: 'Could not read prescription', dosage: '', timing: 'Please try a clearer image' }]);
-      } finally {
-        setScanning(false);
-      }
+        const { data } = await axios.post(`${API_BASE}/medicine/scan`, { image: base64, imageType: file.type || 'image/jpeg', userId: DEMO_USER_ID, userConditions: profile?.conditions || [] });
+        setScannedMeds(data.scan?.medicines || data.medicines || []);
+      } catch { setScannedMeds([{ name: 'Could not read prescription', dosage: '', timing: 'Please try a clearer image' }]); }
+      finally { setScanning(false); }
     };
     reader.readAsDataURL(file);
     e.target.value = '';
@@ -149,143 +152,183 @@ export default function MedicationsTab() {
 
   return (
     <div className="px-4 py-4 space-y-4">
-      {/* Segmented Control */}
-      <div className="bg-gray-100 rounded-2xl p-1 flex">
-        <button
-          onClick={() => setActiveView('meds')}
-          className={`flex-1 py-2.5 rounded-xl text-sm font-medium transition-all ${
-            activeView === 'meds' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'
-          }`}
-        >
-          💊 My Medicines
-        </button>
-        <button
-          onClick={() => setActiveView('check')}
-          className={`flex-1 py-2.5 rounded-xl text-sm font-medium transition-all ${
-            activeView === 'check' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'
-          }`}
-        >
-          🔬 Check Medicine
-        </button>
+
+      {/* ── Segmented control ──────────────────────────────────────────────── */}
+      <div className="bg-surface-2 rounded-lg p-0.5 flex border border-line">
+        {(['meds', 'check'] as const).map(view => (
+          <button key={view} onClick={() => setActiveView(view)}
+            className={`flex-1 py-2 rounded-md text-sm font-medium transition-all ${
+              activeView === view ? 'bg-surface text-ink shadow-card' : 'text-ink-3'
+            }`}>
+            {view === 'meds' ? '💊 My Medicines' : '🔬 Check Medicine'}
+          </button>
+        ))}
       </div>
 
-      {/* ── MY MEDS VIEW ─────────────────────────────────────────────────── */}
       <AnimatePresence mode="wait">
+        {/* ── MY MEDS ──────────────────────────────────────────────────────── */}
         {activeView === 'meds' && (
-          <motion.div key="meds" initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -8 }} className="space-y-4">
+          <motion.div key="meds" initial={{ opacity: 0, x: -6 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }} className="space-y-3">
             <div className="flex justify-between items-center">
-              <h2 className="text-xl font-bold text-gray-900">My Medicines</h2>
-              <button onClick={() => setShowForm(true)} className="bg-primary text-white px-4 py-2 rounded-xl text-sm font-medium">+ Add</button>
+              <div>
+                <h2 className="text-xl font-bold text-ink tracking-tight">My Medicines</h2>
+                <p className="text-xs text-ink-3 mt-0.5">{meds.length} medicine{meds.length !== 1 ? 's' : ''} tracked</p>
+              </div>
+              <button onClick={() => setShowForm(true)} className="btn text-sm px-3 py-2">+ Add</button>
             </div>
 
             {meds.some(m => !m.takenToday) && meds.length > 0 && (
-              <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} className="bg-warning/10 border border-warning/20 rounded-2xl p-4 flex items-center gap-3">
-                <span className="text-2xl">⏰</span>
+              <div className="border border-warning/30 bg-warning/5 rounded-xl p-3 flex items-center gap-3">
+                <span className="text-lg">⏰</span>
                 <div>
-                  <p className="font-semibold text-gray-900 text-sm">Reminder</p>
-                  <p className="text-xs text-gray-600">You have medicines to take today</p>
+                  <p className="text-sm font-semibold text-ink">Pending today</p>
+                  <p className="text-xs text-ink-2">You have medicines to take</p>
                 </div>
-              </motion.div>
+              </div>
             )}
 
             {isLoading ? (
-              <div className="space-y-3">{[1, 2, 3].map(i => <div key={i} className="bg-white rounded-2xl p-4 animate-pulse h-24" />)}</div>
+              <div className="space-y-2">{[1,2,3].map(i => <div key={i} className="bg-surface rounded-xl border border-line h-20 animate-pulse" />)}</div>
             ) : meds.length === 0 ? (
-              <div className="text-center py-16">
-                <span className="text-6xl">💊</span>
-                <p className="mt-4 text-gray-500">No medicines added yet</p>
-                <button onClick={() => setShowForm(true)} className="mt-4 text-primary text-sm font-medium">Add your first medicine →</button>
+              <div className="text-center py-16 space-y-3">
+                <p className="text-4xl">💊</p>
+                <p className="text-ink-2 text-sm">No medicines added yet</p>
+                <button onClick={() => setShowForm(true)} className="text-primary text-sm font-medium">Add your first medicine →</button>
               </div>
             ) : (
-              <div className="space-y-3">
+              <div className="space-y-2">
                 {meds.map((med, i) => (
-                  <motion.div key={med.medicationId} initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.05 }} className="bg-white rounded-2xl p-4 shadow-sm">
-                    <div className="flex items-start justify-between">
-                      <div className="flex items-center gap-3">
-                        <div className={`w-12 h-12 rounded-xl flex items-center justify-center text-lg ${MED_COLORS[i % MED_COLORS.length]}`}>💊</div>
-                        <div>
-                          <p className="font-semibold text-gray-900">{med.name}</p>
-                          <p className="text-sm text-gray-500">{med.dosage}</p>
-                          <div className="flex gap-1 mt-1 flex-wrap">
-                            {med.times.map(t => <span key={t} className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">{t}</span>)}
-                          </div>
-                        </div>
-                      </div>
-                      <button onClick={() => markTaken.mutate(med.medicationId)} className={`px-3 py-1.5 rounded-xl text-xs font-medium transition-all ${med.takenToday ? 'bg-success/10 text-success' : 'bg-primary text-white'}`}>
-                        {med.takenToday ? '✓ Taken' : 'Take Now'}
-                      </button>
+                  <motion.div key={med.medicationId} initial={{ opacity: 0, x: -6 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.04 }}
+                    className="bg-surface rounded-xl border border-line p-3.5 flex items-center gap-3">
+                    <div className={`w-10 h-10 rounded-lg flex items-center justify-center text-base flex-shrink-0 ${MED_HUE[i % MED_HUE.length]}`}>
+                      💊
                     </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-semibold text-ink text-sm">{med.name}</p>
+                      <p className="text-xs text-ink-2">{med.dosage}</p>
+                      <div className="flex gap-1 mt-1 flex-wrap">
+                        {med.times.map(t => <span key={t} className="text-2xs bg-surface-2 text-ink-3 border border-line px-1.5 py-0.5 rounded-full">{t}</span>)}
+                      </div>
+                    </div>
+                    <button onClick={() => markTaken.mutate(med.medicationId)}
+                      className={`flex-shrink-0 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all active:scale-[0.97] ${
+                        med.takenToday ? 'bg-success/10 text-success border border-success/20' : 'bg-primary text-white'
+                      }`}>
+                      {med.takenToday ? '✓ Done' : 'Take'}
+                    </button>
                   </motion.div>
                 ))}
+              </div>
+            )}
+
+            {/* ── Daily Schedule & Reminders ─────────────────────────────── */}
+            {meds.length > 0 && (
+              <div className="space-y-2 pt-1">
+                <div className="flex items-center justify-between">
+                  <p className="label">Today's Schedule</p>
+                  <button
+                    onClick={async () => {
+                      const granted = await requestNotificationPermission();
+                      setNotifGranted(granted);
+                      setNotifRequested(true);
+                      if (!granted) alert('Enable notifications in browser settings to get medicine reminders.');
+                    }}
+                    className={`flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full border transition-all ${
+                      notifGranted
+                        ? 'bg-success/10 text-success border-success/20'
+                        : 'bg-surface-2 text-ink-3 border-line hover:border-primary hover:text-primary'
+                    }`}
+                  >
+                    {notifGranted ? '🔔 Reminders on' : '🔕 Enable reminders'}
+                  </button>
+                </div>
+
+                {SCHEDULE_SLOTS.map(slot => {
+                  const slotMeds = meds.filter(m => m.times.includes(slot.time));
+                  const isCurrent = slot.time === currentSlot;
+                  if (slotMeds.length === 0) return null;
+                  return (
+                    <div key={slot.time} className={`rounded-xl border p-3 space-y-2 ${
+                      isCurrent ? 'border-primary/30 bg-primary/5' : 'border-line bg-surface'
+                    }`}>
+                      <div className="flex items-center gap-2">
+                        <span className="text-base">{slot.icon}</span>
+                        <span className={`text-xs font-semibold ${isCurrent ? 'text-primary' : 'text-ink-2'}`}>
+                          {slot.label}
+                        </span>
+                        {isCurrent && <span className="text-2xs bg-primary text-white px-1.5 py-0.5 rounded-full">Now</span>}
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {slotMeds.map(m => (
+                          <span key={m.medicationId}
+                            className={`text-xs px-2.5 py-1 rounded-full border ${
+                              m.takenToday
+                                ? 'bg-success/10 text-success border-success/20 line-through'
+                                : isCurrent ? 'bg-primary text-white border-primary' : 'bg-surface-2 text-ink-2 border-line'
+                            }`}>
+                            {m.name} {m.dosage && `· ${m.dosage}`}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             )}
           </motion.div>
         )}
 
-        {/* ── CHECK MEDICINE VIEW ───────────────────────────────────────────── */}
+        {/* ── CHECK MEDICINE ───────────────────────────────────────────────── */}
         {activeView === 'check' && (
-          <motion.div key="check" initial={{ opacity: 0, x: 8 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 8 }} className="space-y-4">
+          <motion.div key="check" initial={{ opacity: 0, x: 6 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }} className="space-y-4">
             <div>
-              <h2 className="text-xl font-bold text-gray-900">Check Medicine</h2>
-              <p className="text-xs text-gray-500 mt-0.5">Type a name or scan a prescription photo</p>
+              <h2 className="text-xl font-bold text-ink tracking-tight">Check Medicine</h2>
+              <p className="text-xs text-ink-3 mt-0.5">Type a name or scan a prescription photo</p>
             </div>
 
-            {/* Text search */}
             <div className="flex gap-2">
-              <input
-                placeholder="Type medicine name (e.g. Metformin)"
-                value={checkName}
-                onChange={e => setCheckName(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && checkMedicine()}
-                className="flex-1 border border-gray-200 rounded-xl px-4 py-3 text-sm outline-none focus:border-primary bg-white"
-              />
-              <button onClick={checkMedicine} disabled={!checkName.trim() || checking} className="bg-primary text-white px-4 py-3 rounded-xl text-sm font-medium disabled:opacity-50">
+              <input placeholder="e.g. Metformin, Paracetamol..." value={checkName}
+                onChange={e => setCheckName(e.target.value)} onKeyDown={e => e.key === 'Enter' && checkMedicine()}
+                className="flex-1 bg-surface-2 border border-line rounded-lg px-3 py-2.5 text-sm text-ink placeholder:text-ink-3 outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition-all" />
+              <button onClick={checkMedicine} disabled={!checkName.trim() || checking}
+                className="btn px-4 disabled:opacity-40">
                 {checking ? '...' : 'Check'}
               </button>
             </div>
 
-            {/* Scan image */}
-            <div>
-              <input ref={fileInputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={handleScanImage} />
-              <button
-                onClick={() => fileInputRef.current?.click()}
-                disabled={scanning}
-                className="w-full border-2 border-dashed border-gray-200 rounded-2xl py-5 flex flex-col items-center gap-2 text-gray-500 hover:border-primary hover:text-primary transition-all disabled:opacity-50"
-              >
-                <span className="text-3xl">{scanning ? '⏳' : '📷'}</span>
-                <span className="text-sm font-medium">{scanning ? 'Scanning prescription...' : 'Scan Prescription / Medicine Strip'}</span>
-                <span className="text-xs text-gray-400">Take photo or upload image</span>
-              </button>
-            </div>
+            <input ref={fileInputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={handleScanImage} />
+            <button onClick={() => fileInputRef.current?.click()} disabled={scanning}
+              className="w-full border border-dashed border-line rounded-xl py-5 flex flex-col items-center gap-1.5 text-ink-3 hover:border-primary hover:text-primary transition-all disabled:opacity-50 active:scale-[0.99]">
+              <span className="text-2xl">{scanning ? '⏳' : '📷'}</span>
+              <span className="text-sm font-medium text-ink-2">{scanning ? 'Scanning...' : 'Scan Prescription'}</span>
+              <span className="text-xs text-ink-3">Take photo or upload image</span>
+            </button>
 
             {profile?.conditions && profile.conditions.length > 0 && (
-              <div className="bg-blue-50 rounded-xl px-4 py-3 flex items-start gap-2">
-                <span className="text-sm">ℹ️</span>
-                <p className="text-xs text-blue-700">Checking against your conditions: {profile.conditions.join(', ')}</p>
+              <div className="bg-primary/5 border border-primary/15 rounded-lg px-3 py-2.5 flex items-start gap-2">
+                <span className="text-sm mt-0.5">ℹ️</span>
+                <p className="text-xs text-primary">Checking against: {profile.conditions.join(', ')}</p>
               </div>
             )}
 
-            {/* Check result */}
             <AnimatePresence>
               {checkResult && (
-                <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="bg-white rounded-2xl shadow-sm overflow-hidden">
-                  <div className="bg-primary px-5 py-4">
+                <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="bg-surface border border-line rounded-xl overflow-hidden">
+                  <div className="bg-primary px-4 py-3.5">
                     <p className="text-white font-bold text-base">{checkResult.name || checkName}</p>
                     <p className="text-blue-100 text-xs mt-0.5">Medicine Information</p>
                   </div>
-                  <div className="p-5 space-y-4">
-                    <InfoRow icon="💊" label="What it is" value={checkResult.what_it_is} />
-                    <InfoRow icon="✅" label="Common Uses" value={checkResult.uses} />
-                    <InfoRow icon="⚠️" label="Side Effects" value={checkResult.side_effects} />
-                    <InfoRow icon="🔗" label="Drug Interactions" value={checkResult.interactions} />
-                    <InfoRow icon="🩺" label="Your Conditions" value={checkResult.safe_for_conditions} />
-                    <div className="bg-yellow-50 border border-yellow-200 rounded-xl px-4 py-3">
-                      <p className="text-xs text-yellow-800">⚠️ {checkResult.disclaimer || 'This is informational only. Always consult your doctor or pharmacist.'}</p>
+                  <div className="p-4 space-y-3.5">
+                    <InfoRow label="What it is"       value={checkResult.what_it_is} />
+                    <InfoRow label="Common Uses"      value={checkResult.uses} />
+                    <InfoRow label="Side Effects"     value={checkResult.side_effects} />
+                    <InfoRow label="Drug Interactions" value={checkResult.interactions} />
+                    <InfoRow label="Your Conditions"  value={checkResult.safe_for_conditions} />
+                    <div className="bg-warning/8 border border-warning/20 rounded-lg px-3 py-2.5">
+                      <p className="text-xs text-warning">⚠️ {checkResult.disclaimer || 'Always consult your doctor or pharmacist.'}</p>
                     </div>
-                    <button
-                      onClick={() => { setForm({ name: checkResult.name || checkName, dosage: '', times: [] }); setActiveView('meds'); setShowForm(true); }}
-                      className="w-full bg-primary/10 text-primary py-3 rounded-xl text-sm font-medium"
-                    >
+                    <button onClick={() => { setForm({ name: checkResult.name || checkName, dosage: '', times: [] }); setActiveView('meds'); setShowForm(true); }}
+                      className="w-full border border-primary/30 text-primary py-2.5 rounded-lg text-sm font-medium hover:bg-primary/5 transition-all">
                       + Add to My Medicines
                     </button>
                   </div>
@@ -293,24 +336,36 @@ export default function MedicationsTab() {
               )}
             </AnimatePresence>
 
-            {/* Scanned medicines */}
             <AnimatePresence>
               {scannedMeds.length > 0 && (
-                <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="space-y-3">
-                  <p className="text-sm font-semibold text-gray-700">📋 Found {scannedMeds.length} medicine(s):</p>
+                <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="space-y-3">
+                  <p className="text-xs font-semibold text-ink-2">Found {scannedMeds.length} medicine(s)</p>
                   {scannedMeds.map((med, i) => (
-                    <div key={i} className="bg-white rounded-2xl p-4 shadow-sm flex items-center justify-between">
-                      <div>
-                        <p className="font-semibold text-gray-900 text-sm">{med.name}</p>
-                        {med.dosage && <p className="text-xs text-gray-500">{med.dosage}</p>}
-                        {med.timing && <p className="text-xs text-gray-400">{med.timing}</p>}
+                    <div key={i} className="bg-surface border border-line rounded-xl overflow-hidden">
+                      <div className="bg-primary px-4 py-3 flex items-center justify-between">
+                        <div>
+                          <p className="text-white font-bold text-sm">{med.name}</p>
+                          {med.dosage && <p className="text-blue-100 text-xs">{med.dosage}{med.frequency ? ` · ${med.frequency}` : ''}</p>}
+                        </div>
+                        <button onClick={() => { setForm({ name: med.name, dosage: med.dosage || '', times: [] }); setActiveView('meds'); setShowForm(true); }}
+                          className="bg-white/20 hover:bg-white/30 text-white text-xs font-medium px-3 py-1.5 rounded-lg transition-all">
+                          + Add
+                        </button>
                       </div>
-                      <button
-                        onClick={() => { setForm({ name: med.name, dosage: med.dosage, times: [] }); setActiveView('meds'); setShowForm(true); }}
-                        className="bg-primary text-white px-3 py-1.5 rounded-xl text-xs font-medium"
-                      >
-                        + Add
-                      </button>
+                      {(med.what_it_is || med.uses || med.side_effects || med.interactions) && (
+                        <div className="p-3.5 space-y-2.5">
+                          <InfoRow label="What it is"    value={med.what_it_is || ''} />
+                          <InfoRow label="Uses"          value={med.uses || ''} />
+                          <InfoRow label="Side Effects"  value={med.side_effects || ''} />
+                          <InfoRow label="Interactions"  value={med.interactions || ''} />
+                          {med.safe_note && (
+                            <div className="bg-warning/8 border border-warning/20 rounded-lg px-3 py-2">
+                              <p className="text-xs text-warning">⚠️ {med.safe_note}</p>
+                            </div>
+                          )}
+                          {med.instructions && <p className="text-xs text-ink-3">📋 {med.instructions}</p>}
+                        </div>
+                      )}
                     </div>
                   ))}
                 </motion.div>
@@ -320,23 +375,36 @@ export default function MedicationsTab() {
         )}
       </AnimatePresence>
 
-      {/* Add medication modal */}
+      {/* ── Add medication sheet ──────────────────────────────────────────── */}
       <AnimatePresence>
         {showForm && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black/40 z-50 flex items-end" onClick={e => e.target === e.currentTarget && setShowForm(false)}>
-            <motion.div initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} transition={{ type: 'spring', damping: 25 }} className="bg-white rounded-t-3xl w-full p-6 space-y-4">
-              <h3 className="text-lg font-bold text-gray-900">Add Medicine</h3>
-              <input placeholder="Medicine name" value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))} className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm outline-none focus:border-primary" />
-              <input placeholder="Dosage (e.g. 500mg)" value={form.dosage} onChange={e => setForm(p => ({ ...p, dosage: e.target.value }))} className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm outline-none focus:border-primary" />
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/30 z-50 flex items-end"
+            onClick={e => e.target === e.currentTarget && setShowForm(false)}>
+            <motion.div initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
+              transition={{ type: 'spring', damping: 28, stiffness: 320 }}
+              className="bg-surface rounded-t-2xl w-full p-5 space-y-4 border-t border-line">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold text-ink">Add Medicine</h3>
+                <button onClick={() => setShowForm(false)} className="w-7 h-7 rounded-lg bg-surface-2 border border-line flex items-center justify-center text-ink-3 text-sm">✕</button>
+              </div>
+              <input placeholder="Medicine name" value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))}
+                className="w-full bg-surface-2 border border-line rounded-lg px-3 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition-all" />
+              <input placeholder="Dosage (e.g. 500mg)" value={form.dosage} onChange={e => setForm(p => ({ ...p, dosage: e.target.value }))}
+                className="w-full bg-surface-2 border border-line rounded-lg px-3 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition-all" />
               <div>
-                <p className="text-sm font-medium text-gray-700 mb-2">When to take:</p>
+                <p className="text-xs font-semibold text-ink-2 mb-2 uppercase tracking-widest">When to take</p>
                 <div className="flex gap-2 flex-wrap">
                   {TIME_OPTIONS.map(t => (
-                    <button key={t} onClick={() => toggleTime(t)} className={`px-3 py-2 rounded-xl text-sm font-medium transition-all ${form.times.includes(t) ? 'bg-primary text-white' : 'bg-gray-100 text-gray-600'}`}>{t}</button>
+                    <button key={t} onClick={() => toggleTime(t)}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ${
+                        form.times.includes(t) ? 'bg-primary text-white border-primary' : 'bg-surface-2 text-ink-2 border-line'
+                      }`}>{t}</button>
                   ))}
                 </div>
               </div>
-              <button onClick={() => addMed.mutate(form)} disabled={!form.name || form.times.length === 0 || addMed.isPending} className="w-full bg-primary text-white py-4 rounded-2xl font-semibold disabled:opacity-50">
+              <button onClick={() => addMed.mutate(form)} disabled={!form.name || form.times.length === 0 || addMed.isPending}
+                className="btn w-full py-3">
                 {addMed.isPending ? 'Saving...' : 'Save Medicine'}
               </button>
             </motion.div>

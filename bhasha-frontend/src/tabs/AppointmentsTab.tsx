@@ -5,6 +5,7 @@ import { API_BASE, DEMO_USER_ID } from '../config';
 import { loadProfile } from '../components/ProfileModal';
 
 type CallStatus = 'idle' | 'initiating' | 'calling' | 'in_progress' | 'confirmed' | 'failed';
+type BookingPrefill = { doctorName: string; preferredTime: string; patientPhone: string };
 
 const STATUS_META: Record<CallStatus, { icon: string; label: string; color: string }> = {
   idle:        { icon: '📞', label: '',                                color: '' },
@@ -15,17 +16,30 @@ const STATUS_META: Record<CallStatus, { icon: string; label: string; color: stri
   failed:      { icon: '❌', label: 'Clinic did not answer',          color: 'text-danger' },
 };
 
-export default function AppointmentsTab() {
+export default function AppointmentsTab({ prefill, onPrefillUsed }: { prefill?: BookingPrefill; onPrefillUsed?: () => void }) {
   const profile = loadProfile();
 
   const [form, setForm] = useState({
     doctorName:    '',
     clinicPhone:   '',
     preferredTime: '',
-    patientName:   profile?.name || '',
-    patientPhone:  '',
+    patientName:   profile?.name  || '',
+    patientPhone:  profile?.phone || '',
     symptoms:      '',
   });
+
+  // Apply voice-collected booking data when navigated here from VoiceTab
+  useEffect(() => {
+    if (!prefill) return;
+    setForm(prev => ({
+      ...prev,
+      doctorName:    prefill.doctorName    || prev.doctorName,
+      preferredTime: prefill.preferredTime || prev.preferredTime,
+      patientPhone:  prefill.patientPhone  || prev.patientPhone || profile?.phone || '',
+      patientName:   prev.patientName      || profile?.name || '',
+    }));
+    onPrefillUsed?.();
+  }, [prefill]);
 
   const [callStatus, setCallStatus]   = useState<CallStatus>('idle');
   const [callId, setCallId]           = useState<string | null>(null);

@@ -1,9 +1,71 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-* { -webkit-font-smoothing: antialiased; }
-body {
-  background: #F2F2F7;
-  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', sans-serif;
+/* ── Base ─────────────────────────────────────────────────────────────────── */
+*, *::before, *::after {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  box-sizing: border-box;
 }
+
+body {
+  background: #F8F7F5;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', sans-serif;
+  color: #111110;
+  font-size: 14px;
+  line-height: 22px;
+}
+
+/* ── Component tokens ─────────────────────────────────────────────────────── */
+@layer components {
+
+  /* Label above a section */
+  .label {
+    @apply text-[11px] font-semibold uppercase tracking-widest text-ink-3;
+  }
+
+  /* Card shell — border, not shadow */
+  .card {
+    @apply bg-surface rounded-xl border border-line;
+  }
+
+  /* Input field */
+  .field {
+    @apply w-full bg-surface-2 border border-line rounded-lg px-3 py-2.5
+           text-sm text-ink placeholder:text-ink-3
+           outline-none focus:border-primary focus:ring-2 focus:ring-primary/10
+           transition-all duration-150;
+  }
+
+  /* Primary button */
+  .btn {
+    @apply inline-flex items-center justify-center gap-2
+           bg-primary text-white rounded-lg px-4 py-2.5 text-sm font-semibold
+           active:scale-[0.98] transition-all duration-150 disabled:opacity-40;
+  }
+
+  /* Ghost / secondary button */
+  .btn-ghost {
+    @apply inline-flex items-center justify-center gap-2
+           border border-line rounded-lg px-4 py-2.5 text-sm font-medium text-ink-2
+           active:scale-[0.98] transition-all duration-150;
+  }
+
+  /* Pill chip */
+  .chip {
+    @apply px-3 py-1 rounded-full text-xs font-medium border border-line
+           bg-surface text-ink-2 transition-all duration-150;
+  }
+
+  .chip-active {
+    @apply bg-primary text-white border-primary;
+  }
+}
+
+/* ── Scrollbar ────────────────────────────────────────────────────────────── */
+::-webkit-scrollbar       { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #D4D3CF; border-radius: 4px; }

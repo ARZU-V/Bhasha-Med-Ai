@@ -18,9 +18,9 @@ type Hospital = {
 type FilterType = 'all' | 'emergency' | 'clinic' | 'government';
 
 const TYPE_COLORS: Record<string, string> = {
-  hospital: 'bg-blue-100 text-blue-700',
-  clinic: 'bg-green-100 text-green-700',
-  government: 'bg-orange-100 text-orange-700',
+  hospital:   'bg-blue-50 text-blue-600 border border-blue-100',
+  clinic:     'bg-emerald-50 text-emerald-600 border border-emerald-100',
+  government: 'bg-amber-50 text-amber-600 border border-amber-100',
 };
 
 const TYPE_ICONS: Record<string, string> = {
@@ -30,13 +30,13 @@ const TYPE_ICONS: Record<string, string> = {
 };
 
 export default function HospitalTab() {
-  const [hospitals, setHospitals] = useState<Hospital[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [locationError, setLocationError] = useState('');
-  const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
-  const [filter, setFilter] = useState<FilterType>('all');
+  const [hospitals,      setHospitals]      = useState<Hospital[]>([]);
+  const [loading,        setLoading]        = useState(false);
+  const [locationError,  setLocationError]  = useState('');
+  const [userLocation,   setUserLocation]   = useState<{ lat: number; lng: number } | null>(null);
+  const [filter,         setFilter]         = useState<FilterType>('all');
   const [selectedHospital, setSelectedHospital] = useState<Hospital | null>(null);
-  const [mapReady, setMapReady] = useState(false);
+  const [mapReady,       setMapReady]       = useState(false);
   const mapRef = useRef<HTMLDivElement>(null);
   const leafletMapRef = useRef<any>(null);
   const markersRef = useRef<any[]>([]);
@@ -204,16 +204,16 @@ export default function HospitalTab() {
 
         {/* Map loading overlay */}
         {!mapReady && (
-          <div className="absolute inset-0 bg-gray-100 flex flex-col items-center justify-center gap-2">
+          <div className="absolute inset-0 bg-surface-2 flex flex-col items-center justify-center gap-2">
             {loading ? (
               <>
-                <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-                <p className="text-xs text-gray-500">Finding hospitals near you...</p>
+                <div className="w-7 h-7 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                <p className="text-xs text-ink-3">Finding hospitals near you...</p>
               </>
             ) : (
               <>
-                <span className="text-4xl">🗺️</span>
-                <p className="text-xs text-gray-500">Loading map...</p>
+                <span className="text-3xl">🗺️</span>
+                <p className="text-xs text-ink-3">Loading map...</p>
               </>
             )}
           </div>
@@ -222,7 +222,7 @@ export default function HospitalTab() {
         {/* Refresh button */}
         <button
           onClick={fetchNearbyHospitals}
-          className="absolute top-3 right-3 z-[500] bg-white shadow-md rounded-xl px-3 py-2 text-xs font-medium text-gray-700 flex items-center gap-1"
+          className="absolute top-3 right-3 z-[500] bg-surface border border-line rounded-lg px-3 py-1.5 text-xs font-semibold text-ink-2 flex items-center gap-1.5 shadow-card"
         >
           <span>📍</span> Refresh
         </button>
@@ -230,29 +230,27 @@ export default function HospitalTab() {
 
       {/* Location warning */}
       {locationError && (
-        <div className="mx-4 mt-3 bg-warning/10 border border-warning/20 rounded-xl px-3 py-2 text-xs text-gray-600 flex items-center gap-2">
-          <span>⚠️</span> {locationError}
+        <div className="mx-4 mt-3 bg-warning/8 border border-warning/20 rounded-lg px-3 py-2.5 text-xs text-ink-2 flex items-start gap-2">
+          <span className="mt-0.5">⚠️</span>
+          <span>{locationError}</span>
         </div>
       )}
 
       {/* Filters */}
       <div className="px-4 py-3 flex gap-2 overflow-x-auto">
         {(['all', 'emergency', 'clinic', 'government'] as FilterType[]).map(f => (
-          <button
-            key={f}
-            onClick={() => setFilter(f)}
-            className={`px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition-all capitalize ${
+          <button key={f} onClick={() => setFilter(f)}
+            className={`px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap border transition-all ${
               filter === f
-                ? 'bg-primary text-white'
-                : 'bg-white text-gray-600 border border-gray-200'
-            }`}
-          >
+                ? 'bg-primary text-white border-primary'
+                : 'bg-surface text-ink-2 border-line'
+            }`}>
             {f === 'emergency' ? '🚨 Emergency' :
-             f === 'clinic' ? '🩺 Clinic' :
-             f === 'government' ? '🏛️ Govt' : '🏥 All'}
+             f === 'clinic'    ? '🩺 Clinic' :
+             f === 'government'? '🏛️ Govt' : '🏥 All'}
           </button>
         ))}
-        <span className="text-xs text-gray-400 self-center whitespace-nowrap ml-1">
+        <span className="text-2xs text-ink-3 self-center whitespace-nowrap ml-1 font-medium">
           {filtered.length} found
         </span>
       </div>
@@ -260,48 +258,37 @@ export default function HospitalTab() {
       {/* Hospital List */}
       <div className="flex-1 overflow-y-auto px-4 pb-4 space-y-3">
         {loading && hospitals.length === 0 ? (
-          <div className="space-y-3">
-            {[1, 2, 3].map(i => (
-              <div key={i} className="bg-white rounded-2xl p-4 animate-pulse h-28" />
-            ))}
+          <div className="space-y-2">
+            {[1,2,3].map(i => <div key={i} className="bg-surface border border-line rounded-xl h-24 animate-pulse" />)}
           </div>
         ) : filtered.length === 0 ? (
-          <div className="text-center py-10">
-            <span className="text-4xl">🏥</span>
-            <p className="mt-3 text-gray-500 text-sm">No hospitals found for this filter</p>
+          <div className="text-center py-12 space-y-2">
+            <span className="text-3xl">🏥</span>
+            <p className="text-ink-2 text-sm">No hospitals for this filter</p>
           </div>
         ) : (
           filtered.map((hospital, i) => (
-            <motion.div
-              key={i}
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: i * 0.04 }}
+            <motion.div key={i} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.04 }}
               onClick={() => flyToHospital(hospital)}
-              className={`bg-white rounded-2xl p-4 shadow-sm cursor-pointer transition-all border-2 ${
-                selectedHospital?.name === hospital.name
-                  ? 'border-primary'
-                  : 'border-transparent'
-              }`}
-            >
+              className={`bg-surface rounded-xl p-3.5 cursor-pointer transition-all border ${
+                selectedHospital?.name === hospital.name ? 'border-primary ring-1 ring-primary/20' : 'border-line'
+              }`}>
               <div className="flex items-start gap-3">
-                {/* Rank badge */}
-                <div className="w-8 h-8 bg-gray-100 rounded-xl flex items-center justify-center text-sm font-bold text-gray-600 flex-shrink-0 mt-0.5">
+                {/* Rank */}
+                <div className="w-7 h-7 bg-surface-2 border border-line rounded-lg flex items-center justify-center text-xs font-bold text-ink-2 flex-shrink-0 mt-0.5">
                   {i + 1}
                 </div>
 
                 <div className="flex-1 min-w-0">
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
-                      <p className="font-semibold text-gray-900 text-sm truncate">{hospital.name}</p>
-                      <p className="text-xs text-gray-500 mt-0.5 truncate">{hospital.address}</p>
+                      <p className="font-semibold text-ink text-sm truncate">{hospital.name}</p>
+                      <p className="text-xs text-ink-3 mt-0.5 truncate">{hospital.address}</p>
                     </div>
                     <div className="flex flex-col items-end gap-1 flex-shrink-0">
-                      <span className="text-xs font-bold text-primary">
-                        {hospital.distance_km.toFixed(1)} km
-                      </span>
+                      <span className="text-xs font-bold text-primary">{hospital.distance_km.toFixed(1)} km</span>
                       {hospital.emergency && (
-                        <span className="text-xs bg-danger/10 text-danger px-2 py-0.5 rounded-full font-medium whitespace-nowrap">
+                        <span className="text-2xs bg-danger/8 text-danger border border-danger/15 px-1.5 py-0.5 rounded-full font-semibold whitespace-nowrap">
                           🚨 24/7
                         </span>
                       )}
@@ -309,29 +296,18 @@ export default function HospitalTab() {
                   </div>
 
                   <div className="flex items-center gap-2 mt-2">
-                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${TYPE_COLORS[hospital.type] || 'bg-gray-100 text-gray-600'}`}>
+                    <span className={`text-2xs px-2 py-0.5 rounded-full font-semibold ${TYPE_COLORS[hospital.type] || 'bg-surface-2 text-ink-3 border border-line'}`}>
                       {TYPE_ICONS[hospital.type]} {hospital.type.charAt(0).toUpperCase() + hospital.type.slice(1)}
                     </span>
-
-                    <div className="flex gap-1 ml-auto">
-                      {/* Directions button */}
-                      <a
-                        href={`https://www.google.com/maps/dir/?api=1&destination=${hospital.lat},${hospital.lng}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        onClick={e => e.stopPropagation()}
-                        className="bg-blue-50 text-primary px-3 py-1 rounded-lg text-xs font-medium flex items-center gap-1"
-                      >
+                    <div className="flex gap-1.5 ml-auto">
+                      <a href={`https://www.google.com/maps/dir/?api=1&destination=${hospital.lat},${hospital.lng}`}
+                        target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()}
+                        className="bg-primary/8 border border-primary/20 text-primary px-2.5 py-1 rounded-lg text-2xs font-semibold flex items-center gap-1">
                         🗺️ Go
                       </a>
-
-                      {/* Call button */}
                       {hospital.phone && (
-                        <a
-                          href={`tel:${hospital.phone}`}
-                          onClick={e => e.stopPropagation()}
-                          className="bg-green-50 text-success px-3 py-1 rounded-lg text-xs font-medium flex items-center gap-1"
-                        >
+                        <a href={`tel:${hospital.phone}`} onClick={e => e.stopPropagation()}
+                          className="bg-success/8 border border-success/20 text-success px-2.5 py-1 rounded-lg text-2xs font-semibold flex items-center gap-1">
                           📞 Call
                         </a>
                       )}
@@ -348,31 +324,26 @@ export default function HospitalTab() {
       <AnimatePresence>
         {selectedHospital && (
           <motion.div
-            initial={{ y: 80, opacity: 0 }}
+            initial={{ y: 72, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
-            exit={{ y: 80, opacity: 0 }}
+            exit={{ y: 72, opacity: 0 }}
+            transition={{ type: 'spring', stiffness: 400, damping: 30 }}
             className="fixed bottom-20 left-1/2 -translate-x-1/2 w-full max-w-md px-4 z-30"
           >
-            <div className="bg-gray-900 rounded-2xl p-4 flex items-center justify-between shadow-xl">
+            <div className="bg-ink rounded-xl p-3.5 flex items-center justify-between shadow-float">
               <div className="min-w-0">
                 <p className="text-white font-semibold text-sm truncate">{selectedHospital.name}</p>
-                <p className="text-gray-400 text-xs">{selectedHospital.distance_km.toFixed(1)} km • {selectedHospital.type}</p>
+                <p className="text-ink-3 text-xs">{selectedHospital.distance_km.toFixed(1)} km · {selectedHospital.type}</p>
               </div>
               <div className="flex gap-2 flex-shrink-0 ml-3">
                 <a
                   href={`https://www.google.com/maps/dir/?api=1&destination=${selectedHospital.lat},${selectedHospital.lng}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="bg-primary text-white px-3 py-2 rounded-xl text-xs font-medium"
+                  target="_blank" rel="noopener noreferrer"
+                  className="bg-primary text-white px-3 py-1.5 rounded-lg text-xs font-semibold"
                 >
                   Directions
                 </a>
-                <button
-                  onClick={() => setSelectedHospital(null)}
-                  className="text-gray-400 px-2"
-                >
-                  ✕
-                </button>
+                <button onClick={() => setSelectedHospital(null)} className="text-ink-3 px-1.5 text-sm">✕</button>
               </div>
             </div>
           </motion.div>

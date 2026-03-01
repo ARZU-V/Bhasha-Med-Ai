@@ -72,47 +72,82 @@ def lambda_handler(event, context):
 
 def check_medicine(medicine_name: str, user_conditions: list):
     bedrock_region = os.environ.get('BEDROCK_REGION', 'us-east-1')
-    bedrock = boto3.client('bedrock-runtime', region_name=bedrock_region)
 
-    conditions_text = ', '.join(user_conditions) if user_conditions else 'None specified'
+    try:
+        bedrock = boto3.client('bedrock-runtime', region_name=bedrock_region)
 
-    user_message = f"""Medicine: {medicine_name}
+        conditions_text = ', '.join(user_conditions) if user_conditions else 'None specified'
+
+        user_message = f"""Medicine: {medicine_name}
 User's known medical conditions: {conditions_text}
 
 Please provide the medicine information in the JSON format specified."""
 
-    response = bedrock.converse(
-        modelId=MODEL_ID,
-        system=[{'text': SYSTEM_PROMPT}],
-        messages=[
-            {'role': 'user', 'content': [{'text': user_message}]}
-        ],
-        inferenceConfig={
-            'maxTokens': 1000,
-            'temperature': 0.3,
-        }
-    )
+        response = bedrock.converse(
+            modelId=MODEL_ID,
+            system=[{'text': SYSTEM_PROMPT}],
+            messages=[
+                {'role': 'user', 'content': [{'text': user_message}]}
+            ],
+            inferenceConfig={
+                'maxTokens': 1000,
+                'temperature': 0.3,
+            }
+        )
 
-    raw_text = response['output']['message']['content'][0]['text'].strip()
+        raw_text = response['output']['message']['content'][0]['text'].strip()
 
-    # Parse JSON from response (handle markdown code blocks if present)
-    if '```json' in raw_text:
-        raw_text = raw_text.split('```json')[1].split('```')[0].strip()
-    elif '```' in raw_text:
-        raw_text = raw_text.split('```')[1].split('```')[0].strip()
+        # Parse JSON from response (handle markdown code blocks if present)
+        if '```json' in raw_text:
+            raw_text = raw_text.split('```json')[1].split('```')[0].strip()
+        elif '```' in raw_text:
+            raw_text = raw_text.split('```')[1].split('```')[0].strip()
 
-    try:
-        medicine_info = json.loads(raw_text)
-    except json.JSONDecodeError:
+        try:
+            medicine_info = json.loads(raw_text)
+        except json.JSONDecodeError:
+            medicine_info = {
+                'what_it_is': raw_text[:300] if raw_text else f'{medicine_name} — could not parse AI response.',
+                'uses': [],
+                'side_effects': [],
+                'interactions': [],
+                'safe_for_conditions': {'overall': 'unknown', 'notes': None},
+                'dosage_note': 'Please consult a pharmacist.',
+                'disclaimer': 'Always consult your doctor or pharmacist before taking this medicine.',
+            }
+
+    except Exception as bedrock_err:
+        # Bedrock unavailable (permissions, region, model not enabled) — return graceful fallback
+        print(f"Bedrock error (non-fatal): {bedrock_err}")
         medicine_info = {
-            'what_it_is': raw_text[:200],
-            'uses': [],
-            'side_effects': [],
-            'interactions': [],
-            'safe_for_conditions': {'overall': 'unknown', 'notes': None},
-            'dosage_note': 'Please consult a pharmacist.',
-            'disclaimer': 'Always consult your doctor or pharmacist before taking this medicine. This is not medical advice.'
+            'what_it_is': f'{medicine_name} — AI lookup unavailable. Please consult a pharmacist or doctor for full details.',
+            'uses': 'Consult your pharmacist or doctor for usage information.',
+            'side_effects': 'Consult your pharmacist or doctor for side effect information.',
+            'interactions': 'Always inform your doctor about all medicines you are taking.',
+            'safe_for_conditions': 'Unknown — consult your doctor if you have chronic conditions.',
+            'dosage_note': 'Follow your doctor\'s or pharmacist\'s instructions.',
+            'disclaimer': 'This is not medical advice. Always consult a qualified healthcare professional.',
         }
+
+    # Normalize: frontend expects plain strings, model may return lists or objects
+    def join_list(val):
+        if isinstance(val, list):
+            return ' • '.join(str(v) for v in val if v)
+        return str(val) if val else ''
+
+    medicine_info['uses']          = join_list(medicine_info.get('uses', ''))
+    medicine_info['side_effects']  = join_list(medicine_info.get('side_effects', ''))
+    medicine_info['interactions']  = join_list(medicine_info.get('interactions', ''))
+
+    sfc = medicine_info.get('safe_for_conditions', '')
+    if isinstance(sfc, dict):
+        overall = sfc.get('overall', 'unknown').title()
+        notes   = sfc.get('notes') or ''
+        medicine_info['safe_for_conditions'] = f"{overall}: {notes}".strip(': ')
+    elif not isinstance(sfc, str):
+        medicine_info['safe_for_conditions'] = str(sfc)
+
+    medicine_info['name'] = medicine_name
 
     return {
         'statusCode': 200,

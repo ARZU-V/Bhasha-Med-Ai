@@ -2,6 +2,7 @@ import json
 import boto3
 import os
 import uuid
+from decimal import Decimal
 from datetime import datetime, date
 
 CORS = {
@@ -12,9 +13,19 @@ CORS = {
 }
 
 
+class DecimalEncoder(json.JSONEncoder):
+    """DynamoDB returns Decimal for numbers — convert to int/float for JSON."""
+    def default(self, obj):
+        if isinstance(obj, Decimal):
+            return int(obj) if obj % 1 == 0 else float(obj)
+        return super().default(obj)
+
+
 def get_dynamodb_table():
-    dynamodb = boto3.resource('dynamodb', region_name=os.environ['AWS_REGION_NAME'])
-    return dynamodb.Table(os.environ['DYNAMODB_MAIN_TABLE'])
+    region = os.environ.get('AWS_REGION_NAME', os.environ.get('AWS_DEFAULT_REGION', 'ap-south-1'))
+    table_name = os.environ.get('DYNAMODB_MAIN_TABLE', 'BhashaAI_Main')
+    dynamodb = boto3.resource('dynamodb', region_name=region)
+    return dynamodb.Table(table_name)
 
 
 def lambda_handler(event, context):
@@ -84,7 +95,7 @@ def list_medications(user_id: str):
     return {
         'statusCode': 200,
         'headers': CORS,
-        'body': json.dumps({'medications': medications})
+        'body': json.dumps({'medications': medications}, cls=DecimalEncoder)
     }
 
 
@@ -104,7 +115,7 @@ def create_medication(body: dict):
         'times': body.get('times', []),
         'active': True,
         'createdAt': now,
-        'lastTakenDate': None,
+        # DynamoDB cannot store None — omit lastTakenDate until first taken
     }
 
     table.put_item(Item=item)
@@ -116,7 +127,7 @@ def create_medication(body: dict):
             'message': 'Medication added',
             'medicationId': med_id,
             'medication': item
-        })
+        }, cls=DecimalEncoder)
     }
 
 
@@ -150,9 +161,7 @@ def mark_taken(med_id: str, body: dict):
     )
 
     # Log adherence
-    adherence_table = boto3.resource(
-        'dynamodb', region_name=os.environ['AWS_REGION_NAME']
-    ).Table(os.environ['DYNAMODB_MAIN_TABLE'])
+    adherence_table = get_dynamodb_table()
 
     adherence_table.put_item(Item={
         'userId': user_id,

@@ -177,13 +177,30 @@ Be warm and caring. Speak like a helpful friend, not a formal doctor."""
         # ── Intent detection ──────────────────────────────────────────────────
         intent = 'general'
         lower = text.lower()
-        if any(w in lower for w in ['appointment', 'doctor', 'clinic', 'book']):
+        response_lower = response_text.lower()
+
+        # English + Hindi/Indian language keywords for each intent
+        booking_user = ['appointment', 'doctor', 'clinic', 'book', 'physician',
+                        'अपॉइंटमेंट', 'डॉक्टर', 'क्लिनिक', 'बुक', 'চিকিৎসক', 'నేను']
+        # Detect booking confirmation in AI's own response (works across all languages)
+        booking_ai = ['appointment request', 'sending your appointment', 'book', 'appointment now',
+                      'नोट कर लिया', 'अपॉइंटमेंट बुक', 'संपर्क करूंगा', 'बुक कर',
+                      'appointment ke liye']
+
+        med_user = ['medicine', 'tablet', 'pill', 'dose', 'remind',
+                    'दवा', 'गोली', 'दवाई', 'टैबलेट', 'ওষুধ', 'మందు']
+        emergency_user = ['emergency', 'chest pain', 'breathing', 'unconscious', 'stroke',
+                          'छाती में दर्द', 'सांस', 'बेहोश']
+        symptom_user = ['symptom', 'fever', 'headache', 'sick', 'feel', 'pain',
+                        'बुखार', 'सिरदर्द', 'दर्द', 'बीमार', 'জ্বর', 'తలనొప్పి']
+
+        if any(w in lower for w in booking_user) or any(w in response_lower for w in booking_ai):
             intent = 'booking'
-        elif any(w in lower for w in ['medicine', 'tablet', 'pill', 'dose', 'remind']):
+        elif any(w in lower for w in med_user):
             intent = 'medication'
-        elif any(w in lower for w in ['emergency', 'help', 'pain', 'chest', 'breathing']):
+        elif any(w in lower for w in emergency_user):
             intent = 'emergency'
-        elif any(w in lower for w in ['symptom', 'fever', 'headache', 'sick', 'feel']):
+        elif any(w in lower for w in symptom_user):
             intent = 'symptom'
 
         # ── Google Cloud TTS ──────────────────────────────────────────────────
@@ -225,15 +242,20 @@ Be warm and caring. Speak like a helpful friend, not a formal doctor."""
             'hasAudio': audio_content is not None,
         })
 
+        response_body = {
+            'responseText': response_text,
+            'audioContent': audio_content,
+            'intent': intent,
+            'sessionId': session_id,
+        }
+        # When booking confirmed, extract structured details from conversation
+        if intent == 'booking':
+            response_body['bookingData'] = _extract_booking_data(messages)
+
         return {
             'statusCode': 200,
             'headers': CORS,
-            'body': json.dumps({
-                'responseText': response_text,
-                'audioContent': audio_content,   # base64 MP3, or null if TTS failed
-                'intent': intent,
-                'sessionId': session_id,
-            })
+            'body': json.dumps(response_body)
         }
 
     except Exception as e:
@@ -243,3 +265,39 @@ Be warm and caring. Speak like a helpful friend, not a formal doctor."""
             'headers': CORS,
             'body': json.dumps({'error': str(e)})
         }
+
+
+def _extract_booking_data(messages: list) -> dict:
+    """Scan conversation history for doctor name, preferred time, and phone number."""
+    import re
+    data = {'doctorName': '', 'preferredTime': '', 'patientPhone': ''}
+
+    for msg in messages:
+        if msg.get('role') != 'user':
+            continue
+        text = msg.get('content', [{}])[0].get('text', '') if isinstance(msg.get('content'), list) else ''
+
+        # 10-digit Indian phone (with optional +91 prefix)
+        phone = re.search(r'(?:\+?91[-\s]?)?([6-9]\d{4}[-\s]?\d{5})', text)
+        if phone and not data['patientPhone']:
+            data['patientPhone'] = re.sub(r'[-\s]', '', phone.group())
+
+        # Doctor / clinic name after keyword
+        doc = re.search(
+            r'(?:doctor|dr\.?|डॉक्टर|clinic|अस्पताल)\s+([A-Za-z\u0900-\u097F][A-Za-z\u0900-\u097F\s]{1,30})',
+            text, re.IGNORECASE
+        )
+        if doc and not data['doctorName']:
+            data['doctorName'] = doc.group(1).strip()
+
+        # Time / day expressions
+        time_match = re.search(
+            r'(tomorrow|today|kal|aaj|monday|tuesday|wednesday|thursday|friday|saturday|sunday'
+            r'|कल|आज|सोमवार|मंगलवार|बुधवार|गुरुवार|शुक्रवार|शनिवार|रविवार'
+            r'|\d{1,2}\s*(?:am|pm|बजे))',
+            text, re.IGNORECASE
+        )
+        if time_match and not data['preferredTime']:
+            data['preferredTime'] = time_match.group().strip()
+
+    return data

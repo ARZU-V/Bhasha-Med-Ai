@@ -101,13 +101,12 @@ def exotel_call(to_phone: str, applet_url: str, callback_url: str) -> dict:
     exophone    = os.environ['EXOTEL_PHONE']  # e.g. 08039XXXXXX
 
     data = urllib.parse.urlencode({
-        'From':                    to_phone,     # clinic's number (Exotel dials this)
-        'CallerId':                exophone,     # your ExoPhone shown as caller ID
-        'Url':                     applet_url,   # ExoML played when clinic picks up
-        'StatusCallback':          callback_url, # webhook called when call ends
-        'StatusCallbackEvents[0]': 'terminal',
-        'TimeLimit':               90,           # max call duration seconds
-        'TimeOut':                 30,           # ring timeout seconds
+        'From':           to_phone,     # clinic's number (Exotel dials this)
+        'CallerId':       exophone,     # your ExoPhone shown as caller ID
+        'Url':            applet_url,   # ExoML played when clinic picks up
+        'StatusCallback': callback_url, # webhook called when call ends
+        'TimeLimit':      90,           # max call duration seconds
+        'TimeOut':        30,           # ring timeout seconds
     }).encode('utf-8')
 
     credentials = base64.b64encode(f'{api_key}:{api_token}'.encode()).decode()
