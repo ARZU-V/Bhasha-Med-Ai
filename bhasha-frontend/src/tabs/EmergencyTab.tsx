@@ -7,9 +7,7 @@ import { loadProfile } from '../components/ProfileModal';
 type Contact = { name: string; phone: string; relation: string };
 
 export default function EmergencyTab() {
-  const [contacts, setContacts] = useState<Contact[]>([
-    { name: 'Priya (Wife)', phone: '+919876543210', relation: 'Family' },
-  ]);
+  const [contacts, setContacts] = useState<Contact[]>([]);
   const [showAddForm,    setShowAddForm]    = useState(false);
   const [newContact,     setNewContact]     = useState({ name: '', phone: '', relation: '' });
   const [emergencyState, setEmergencyState] = useState<'idle' | 'active' | 'cancelled'>('idle');
