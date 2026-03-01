@@ -20,7 +20,7 @@ def lambda_handler(event, context):
         return {'statusCode': 200, 'headers': CORS, 'body': ''}
 
     try:
-        body = json.loads(event.get('body', '{}'))
+        body = json.loads(event.get('body') or '{}')
         user_id        = body.get('userId', 'demo-user')
         doctor_name    = body.get('doctorName', 'Doctor')
         clinic_phone   = body.get('clinicPhone', '')
@@ -112,7 +112,7 @@ def exotel_call(to_phone: str, applet_url: str, callback_url: str) -> dict:
     credentials = base64.b64encode(f'{api_key}:{api_token}'.encode()).decode()
 
     req = urllib.request.Request(
-        f'https://api.exotel.com/v1/Accounts/{account_sid}/Calls/connect',
+        f'https://api.exotel.com/v1/Accounts/{account_sid}/Calls/connect.json',
         data=data,
         headers={
             'Authorization': f'Basic {credentials}',
@@ -122,4 +122,8 @@ def exotel_call(to_phone: str, applet_url: str, callback_url: str) -> dict:
     )
 
     with urllib.request.urlopen(req, timeout=15) as resp:
-        return json.loads(resp.read().decode())
+        body = resp.read().decode()
+        try:
+            return json.loads(body)
+        except Exception:
+            return {'raw': body}
