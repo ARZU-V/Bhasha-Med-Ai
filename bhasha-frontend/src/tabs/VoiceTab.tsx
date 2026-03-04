@@ -1,19 +1,47 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import axios from 'axios';
 import { API_BASE, DEMO_USER_ID } from '../config';
 import { loadProfile } from '../components/ProfileModal';
 
-type BookingData = { doctorName: string; preferredTime: string; patientPhone: string };
+type BookingData = { doctorName?: string; preferredTime?: string; patientPhone?: string; condition?: string; [key: string]: any };
 type Action = { label: string; icon: string; tab: string; bookingData?: BookingData };
-type Message = { role: 'user' | 'assistant'; text: string; audioContent?: string; lang?: string; action?: Action };
+
+type DeepStructured = {
+  summary: string;
+  possible_conditions: Array<{ name: string; likelihood: string; brief: string }>;
+  urgency: 'emergency' | 'urgent' | 'routine';
+  urgency_reason: string;
+  doctor_roadmap: { see_first: string; timeframe: string; if_referred?: string };
+  action_steps: string[];
+  tests_to_ask: string[];
+  red_flags: string[];
+  self_care: string[];
+  questions_for_doctor: string[];
+};
+
+type Message = {
+  role: 'user' | 'assistant';
+  text: string;
+  audioContent?: string;
+  lang?: string;
+  action?: Action;
+  // deep mode fields
+  structured?: DeepStructured;
+  symptoms_detected?: string[];
+  sources?: string[];
+  imageAnalysis?: string;
+  isDeep?: boolean;
+};
+
 type Status = 'idle' | 'listening' | 'thinking';
 
 const INTENT_ACTIONS: Record<string, Omit<Action, 'bookingData'>> = {
-  booking:    { label: 'Book an Appointment', icon: '📅', tab: 'appointments' },
-  emergency:  { label: 'Go to Emergency SOS', icon: '🆘', tab: 'emergency' },
-  medication: { label: 'Manage My Meds',      icon: '💊', tab: 'medications' },
-  symptom:    { label: 'Find Nearby Hospital', icon: '🏥', tab: 'hospitals' },
+  booking:     { label: 'Book an Appointment',      icon: '📅', tab: 'appointments' },
+  emergency:   { label: 'Go to Emergency SOS',      icon: '🆘', tab: 'emergency' },
+  medication:  { label: 'Manage My Meds',           icon: '💊', tab: 'medications' },
+  symptom:     { label: 'Find Nearby Hospital',     icon: '🏥', tab: 'hospitals' },
+  find_nearby: { label: 'Search Nearby Clinics',    icon: '🔍', tab: 'hospitals' },
 };
 
 const RECOG_LANGS = [
@@ -23,6 +51,10 @@ const RECOG_LANGS = [
   { code: 'te', bcp: 'te-IN', label: 'తెలుగు' },
   { code: 'ta', bcp: 'ta-IN', label: 'தமிழ்' },
   { code: 'mr', bcp: 'mr-IN', label: 'मराठी' },
+  { code: 'gu', bcp: 'gu-IN', label: 'ગુજરાતી' },
+  { code: 'kn', bcp: 'kn-IN', label: 'ಕನ್ನಡ' },
+  { code: 'ml', bcp: 'ml-IN', label: 'മലയാളം' },
+  { code: 'pa', bcp: 'pa-IN', label: 'ਪੰਜਾਬੀ' },
 ];
 
 function detectTypedLang(text: string, fallback: string): string {
@@ -37,22 +69,220 @@ function detectTypedLang(text: string, fallback: string): string {
   return fallback;
 }
 
+// ── Deep Response Card ────────────────────────────────────────────────────────
+function DeepResponseCard({ msg, onSendSMS, onSaveHistory, onFindSpecialist }: {
+  msg: Message;
+  onSendSMS: (structured: DeepStructured, symptoms: string[]) => void;
+  onSaveHistory: (structured: DeepStructured, symptoms: string[]) => void;
+  onFindSpecialist: (condition: string) => void;
+}) {
+  const s = msg.structured!;
+  const urgencyColor =
+    s.urgency === 'emergency' ? 'text-red-600 bg-red-50 border-red-200' :
+    s.urgency === 'urgent'    ? 'text-orange-600 bg-orange-50 border-orange-200' :
+                                'text-green-600 bg-green-50 border-green-200';
+  const urgencyIcon =
+    s.urgency === 'emergency' ? '🚨' :
+    s.urgency === 'urgent'    ? '⚠️' : '✅';
+
+  const likelihoodColor = (l: string) =>
+    l === 'high' ? 'bg-red-100 text-red-700' :
+    l === 'moderate' ? 'bg-orange-100 text-orange-700' :
+    'bg-surface-2 text-ink-3';
+
+  return (
+    <div className="space-y-2.5 max-w-xs">
+
+      {/* Urgency banner */}
+      <div className={`flex items-center gap-2 px-3 py-2 rounded-xl border text-xs font-semibold ${urgencyColor}`}>
+        <span>{urgencyIcon}</span>
+        <span>{s.urgency.toUpperCase()} — {s.urgency_reason || s.summary}</span>
+      </div>
+
+      {/* Detected symptoms */}
+      {(msg.symptoms_detected?.length ?? 0) > 0 && (
+        <div>
+          <p className="text-2xs text-ink-3 font-medium mb-1">DETECTED BY AI</p>
+          <div className="flex flex-wrap gap-1">
+            {msg.symptoms_detected!.map((sym, i) => (
+              <span key={i} className="px-2 py-0.5 bg-primary/10 text-primary rounded-full text-xs">
+                {sym}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Possible conditions */}
+      {s.possible_conditions.length > 0 && (
+        <div>
+          <p className="text-2xs text-ink-3 font-medium mb-1">POSSIBLE CONDITIONS</p>
+          <div className="space-y-1">
+            {s.possible_conditions.map((c, i) => (
+              <div key={i} className="flex items-start gap-2 bg-surface-2 rounded-lg px-2.5 py-2">
+                <span className={`text-2xs px-1.5 py-0.5 rounded font-medium flex-shrink-0 ${likelihoodColor(c.likelihood)}`}>
+                  {c.likelihood}
+                </span>
+                <div>
+                  <p className="text-xs font-medium text-ink">{c.name}</p>
+                  <p className="text-2xs text-ink-3 leading-relaxed">{c.brief}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Doctor roadmap */}
+      <div className="bg-primary/5 border border-primary/20 rounded-xl p-3">
+        <p className="text-2xs text-primary font-semibold mb-1">RECOMMENDED ACTION</p>
+        <p className="text-xs font-bold text-ink">See: {s.doctor_roadmap.see_first}</p>
+        <p className="text-xs text-ink-2">{s.doctor_roadmap.timeframe}</p>
+        {s.doctor_roadmap.if_referred && (
+          <p className="text-2xs text-ink-3 mt-0.5">
+            May refer to: {s.doctor_roadmap.if_referred}
+          </p>
+        )}
+      </div>
+
+      {/* Action steps */}
+      {s.action_steps.length > 0 && (
+        <div>
+          <p className="text-2xs text-ink-3 font-medium mb-1.5">WHAT TO DO</p>
+          <div className="space-y-1.5">
+            {s.action_steps.map((step, i) => (
+              <div key={i} className="flex gap-2 items-start">
+                <span className="w-5 h-5 bg-primary text-white rounded-full flex items-center justify-center text-2xs font-bold flex-shrink-0 mt-0.5">
+                  {i + 1}
+                </span>
+                <p className="text-xs text-ink leading-relaxed">{step.replace(/^Step \d+:\s*/i, '')}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Tests to ask */}
+      {s.tests_to_ask.length > 0 && (
+        <div className="bg-surface-2 rounded-xl p-2.5">
+          <p className="text-2xs text-ink-3 font-medium mb-1">ASK DOCTOR FOR THESE TESTS</p>
+          <div className="flex flex-wrap gap-1">
+            {s.tests_to_ask.map((t, i) => (
+              <span key={i} className="text-xs bg-surface border border-line rounded-lg px-2 py-0.5">{t}</span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Red flags */}
+      {s.red_flags.length > 0 && (
+        <div className="bg-red-50 border border-red-200 rounded-xl p-2.5">
+          <p className="text-2xs text-red-600 font-semibold mb-1">⚠️ CALL 112 IF YOU NOTICE</p>
+          {s.red_flags.map((f, i) => (
+            <p key={i} className="text-xs text-red-700 leading-relaxed">• {f}</p>
+          ))}
+        </div>
+      )}
+
+      {/* Sources */}
+      {(msg.sources?.length ?? 0) > 0 && (
+        <p className="text-2xs text-ink-3">
+          Sources: {msg.sources!.slice(0, 3).join(' • ')}
+        </p>
+      )}
+
+      {/* Image analysis */}
+      {msg.imageAnalysis && (
+        <div className="bg-surface border border-line rounded-xl p-3">
+          <p className="text-2xs text-ink-3 font-medium mb-1">IMAGE ANALYSIS</p>
+          <p className="text-xs text-ink leading-relaxed">{msg.imageAnalysis}</p>
+        </div>
+      )}
+
+      {/* Action row */}
+      <div className="flex gap-2">
+        <button
+          onClick={() => onSendSMS(s, msg.symptoms_detected || [])}
+          className="flex-1 flex items-center justify-center gap-1 text-xs text-ink-2 border border-line bg-surface rounded-xl py-2"
+        >
+          <span>📱</span> SMS
+        </button>
+        <button
+          onClick={() => onSaveHistory(s, msg.symptoms_detected || [])}
+          className="flex-1 flex items-center justify-center gap-1 text-xs text-primary border border-primary/20 bg-primary/5 rounded-xl py-2"
+        >
+          <span>🗂️</span> Save History
+        </button>
+        {s.possible_conditions.length > 0 && (
+          <button
+            onClick={() => onFindSpecialist(s.doctor_roadmap.see_first || s.possible_conditions[0].name)}
+            className="flex-1 flex items-center justify-center gap-1 text-xs text-ink-2 border border-line bg-surface rounded-xl py-2"
+          >
+            <span>🏥</span> Specialist
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function VoiceTab({ onNavigate }: { onNavigate: (tab: string, data?: BookingData) => void }) {
   const profile = loadProfile();
-  const sessionIdRef = useRef(`session-${Date.now()}`);
+  // Persist session per day so DynamoDB history carries through the day
+  const sessionIdRef = useRef<string>((() => {
+    const today = new Date().toISOString().split('T')[0];
+    try {
+      const stored = localStorage.getItem('bhasha_session');
+      if (stored) { const { id, date } = JSON.parse(stored); if (date === today) return id; }
+    } catch { /* ignore */ }
+    const id = `session-${Date.now()}`;
+    localStorage.setItem('bhasha_session', JSON.stringify({ id, date: today }));
+    return id;
+  })());
   const recognitionRef = useRef<any>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  const defaultLang = RECOG_LANGS.find(l => l.code === profile?.language) ?? RECOG_LANGS[0];
+  // Restore selected language from sessionStorage, fallback to profile language
+  const defaultLang = (() => {
+    try {
+      const stored = sessionStorage.getItem('bhasha_recog_lang');
+      if (stored) return RECOG_LANGS.find(l => l.code === stored) ?? null;
+    } catch { /* ignore */ }
+    return null;
+  })() ?? RECOG_LANGS.find(l => l.code === profile?.language) ?? RECOG_LANGS[0];
+
   const [recogLang, setRecogLang] = useState(defaultLang);
 
-  const [messages, setMessages] = useState<Message[]>([{
-    role: 'assistant',
-    text: profile?.name
-      ? `Namaste ${profile.name}! I am Bhasha AI. Tap the mic and speak — I will understand you.`
-      : 'Namaste! I am Bhasha AI. Tap the mic and speak in any Indian language.',
-  }]);
+  // Restore messages from sessionStorage (chat persists across tab switches)
+  const [messages, setMessages] = useState<Message[]>(() => {
+    try {
+      const stored = sessionStorage.getItem('bhasha_chat_messages');
+      if (stored) {
+        const parsed: Message[] = JSON.parse(stored);
+        // Strip audio — can't replay old audio, keeps storage small
+        return parsed.map(m => ({ ...m, audioContent: undefined }));
+      }
+    } catch { /* ignore */ }
+    return [{
+      role: 'assistant' as const,
+      text: profile?.name
+        ? `Namaste ${profile.name}! I am Bhasha AI. Tap the mic and speak — I will understand you.`
+        : 'Namaste! I am Bhasha AI. Tap the mic and speak in any Indian language.',
+    }];
+  });
 
+  // Persist messages whenever they change
+  useEffect(() => {
+    const toStore = messages.map(m => ({ ...m, audioContent: undefined }));
+    try { sessionStorage.setItem('bhasha_chat_messages', JSON.stringify(toStore)); } catch { /* ignore */ }
+  }, [messages]);
+
+  // Persist selected language
+  useEffect(() => {
+    try { sessionStorage.setItem('bhasha_recog_lang', recogLang.code); } catch { /* ignore */ }
+  }, [recogLang]);
+
+  const [mode,            setMode]            = useState<'quick' | 'deep'>('quick');
   const [status,          setStatus]         = useState<Status>('idle');
   const [inputText,       setInputText]       = useState('');
   const [processingLabel, setProcessingLabel] = useState('');
@@ -60,59 +290,88 @@ export default function VoiceTab({ onNavigate }: { onNavigate: (tab: string, dat
   const isListening  = status === 'listening';
   const isProcessing = status === 'thinking';
 
-  const scrollToBottom = () => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-
   const sendText = async (text: string, langCode = 'en') => {
     if (!text.trim()) return;
+
     setMessages(prev => [...prev, { role: 'user', text, lang: langCode }]);
     setStatus('thinking');
-    setProcessingLabel('Thinking...');
-    setInputText('');
 
     try {
       const { data } = await axios.post(`${API_BASE}/voice/process`, {
         text,
         language: langCode,
-        userId: DEMO_USER_ID,
         sessionId: sessionIdRef.current,
-        userConditions: profile?.conditions || [],
-        userName: profile?.name || '',
+        userId: profile?.name ? `user-${profile.name}` : DEMO_USER_ID,
+        // Send full profile so AI personalises responses
+        userProfile: {
+          name: profile?.name || '',
+          age: profile?.age || '',
+          phone: profile?.phone || '',
+          conditions: profile?.conditions || [],
+          history: profile?.history || '',
+        },
       });
 
-      const baseAction = INTENT_ACTIONS[data.intent as string];
-      const action: Action | undefined = baseAction
-        ? { ...baseAction, bookingData: data.bookingData }
-        : undefined;
-
+      const action = data.intent && data.intent !== 'general' ? INTENT_ACTIONS[data.intent] : undefined;
       setMessages(prev => [
         ...prev,
-        { role: 'assistant', text: data.responseText, audioContent: data.audioContent, lang: langCode, action },
+        { role: 'assistant', text: data.responseText, audioContent: data.audioContent, action },
       ]);
+
+      // Save last chat preview for Dashboard
+      try {
+        localStorage.setItem('bhasha_last_chat', JSON.stringify({
+          userQuestion: text.substring(0, 80),
+          preview:      data.responseText?.substring(0, 150) || '',
+          timestamp:    new Date().toISOString(),
+        }));
+      } catch {}
 
       if (data.audioContent) {
-        const audio = new Audio(`data:audio/mp3;base64,${data.audioContent}`);
-        audio.play().catch(console.error);
+        new Audio(`data:audio/mp3;base64,${data.audioContent}`).play();
       }
 
-      // Agentic auto-navigation
+      // Auto-navigate + auto-fill based on AI intent
       if (data.intent === 'emergency') {
         setTimeout(() => onNavigate('emergency'), 1500);
-      } else if (data.intent === 'symptom') {
-        // AI recommended a nearby clinic → open hospital map
-        setTimeout(() => onNavigate('hospitals'), 2500);
-      } else if (data.intent === 'booking' && data.bookingData?.patientPhone) {
-        // AI collected booking details → open appointments with prefill
-        setTimeout(() => onNavigate('appointments', data.bookingData), 2000);
+
+      } else if (data.intent === 'find_nearby') {
+        setTimeout(() => onNavigate('hospitals'), 2000);
+
+      } else if (data.intent === 'booking') {
+        const prefill = {
+          doctorName:    data.bookingData?.doctorName || data.specialty || '',
+          clinicPhone:   data.bookingData?.clinicPhone || '',
+          preferredTime: data.bookingData?.preferredTime || '',
+          patientPhone:  data.bookingData?.patientPhone || profile?.phone || '',
+        };
+        setTimeout(() => onNavigate('appointments', prefill), 2000);
+
+      } else if (data.intent === 'medication' && data.medData?.name) {
+        // Auto-save medication reminder to localStorage
+        const existing = JSON.parse(localStorage.getItem('bhasha_meds') || '[]');
+        const alreadyExists = existing.some((m: any) =>
+          m.name.toLowerCase() === data.medData.name.toLowerCase()
+        );
+        if (!alreadyExists) {
+          const newMed = {
+            medicationId: `voice-${Date.now()}`,
+            name: data.medData.name,
+            dosage: '1 tablet',
+            times: [data.medData.time],
+          };
+          localStorage.setItem('bhasha_meds', JSON.stringify([...existing, newMed]));
+        }
+        setTimeout(() => onNavigate('medications'), 2000);
       }
-    } catch {
-      setMessages(prev => [
-        ...prev,
-        { role: 'assistant', text: 'Sorry, something went wrong. Please try again.' },
-      ]);
+
+    } catch (err: any) {
+      setMessages(prev => [...prev, {
+        role: 'assistant',
+        text: 'Sorry, something went wrong. Please check your connection and try again.',
+      }]);
     } finally {
       setStatus('idle');
-      setProcessingLabel('');
-      setTimeout(scrollToBottom, 100);
     }
   };
 
@@ -134,7 +393,8 @@ export default function VoiceTab({ onNavigate }: { onNavigate: (tab: string, dat
       const text: string = e.results[0][0].transcript;
       if (!text.trim()) { setStatus('idle'); return; }
       setProcessingLabel(`Heard: "${text.slice(0, 60)}"`);
-      sendText(text, recogLang.code);
+      if (mode === 'deep') sendDeepText(text, recogLang.code);
+      else sendText(text, recogLang.code);
     };
 
     r.onerror = (e: any) => {
@@ -172,12 +432,100 @@ export default function VoiceTab({ onNavigate }: { onNavigate: (tab: string, dat
     // 'thinking': button is disabled — no-op
   };
 
+  const sendDeepText = async (text: string, langCode = 'en') => {
+    if (!text.trim()) return;
+    setMessages(prev => [...prev, { role: 'user', text, lang: langCode }]);
+    setStatus('thinking');
+    setProcessingLabel('Analysing with AI + Medical KB…');
+    try {
+      const { data } = await axios.post(`${API_BASE}/deep-analysis`, {
+        question: text,
+        language: langCode,
+        userConditions: profile?.conditions || [],
+        userId: profile?.name ? `user-${profile.name}` : DEMO_USER_ID,
+        phone: profile?.phone || '',
+      });
+      setMessages(prev => [...prev, {
+        role: 'assistant',
+        text: data.structured?.summary || data.answer || '',
+        isDeep: true,
+        structured: data.structured,
+        symptoms_detected: data.symptoms_detected || [],
+        sources: data.sources || [],
+        imageAnalysis: data.imageAnalysis,
+      }]);
+      // Auto-navigate if urgency is emergency
+      if (data.structured?.urgency === 'emergency') {
+        setTimeout(() => onNavigate('emergency'), 1500);
+      }
+    } catch {
+      setMessages(prev => [...prev, {
+        role: 'assistant',
+        text: 'Deep analysis unavailable. Please check your connection.',
+      }]);
+    } finally {
+      setStatus('idle');
+      setProcessingLabel('');
+    }
+  };
+
+  const handleSendSMS = async (structured: DeepStructured, symptoms: string[]) => {
+    if (!profile?.phone) {
+      alert('Add your phone number in the profile (👤) to receive SMS summaries.');
+      return;
+    }
+    try {
+      await axios.post(`${API_BASE}/deep-analysis`, {
+        question: structured.summary,
+        language: recogLang.code,
+        userConditions: profile?.conditions || [],
+        userId: profile?.name ? `user-${profile.name}` : DEMO_USER_ID,
+        phone: profile.phone,
+      });
+      alert('SMS sent to ' + profile.phone);
+    } catch {
+      alert('SMS sending failed. Check SNS sandbox permissions.');
+    }
+  };
+
+  const handleSaveHistory = (structured: DeepStructured, symptoms: string[]) => {
+    const condition = symptoms.length > 0
+      ? symptoms.join(', ')
+      : structured.possible_conditions[0]?.name || structured.summary.slice(0, 60);
+    onNavigate('history', {
+      condition,
+      year: new Date().getFullYear().toString(),
+      notes: structured.action_steps.slice(0, 2).join('. '),
+    });
+  };
+
+  const handleFindSpecialist = (condition: string) => {
+    onNavigate('hospitals', { condition });
+  };
+
   const handleTextSend = () => {
     const trimmed = inputText.trim();
     if (!trimmed || isProcessing) return;
-    const isEnglish = /^[a-zA-Z0-9\s.,!?'"()\-]+$/.test(trimmed);
-    const lang = isEnglish ? 'en' : detectTypedLang(trimmed, recogLang.code);
-    sendText(trimmed, lang);
+    const lang = detectTypedLang(trimmed, recogLang.code);
+    setInputText('');
+    if (mode === 'deep') sendDeepText(trimmed, lang);
+    else sendText(trimmed, lang);
+  };
+
+  const clearChat = () => {
+    const welcome: Message = {
+      role: 'assistant',
+      text: profile?.name
+        ? `Namaste ${profile.name}! I am Bhasha AI. Tap the mic and speak — I will understand you.`
+        : 'Namaste! I am Bhasha AI. Tap the mic and speak in any Indian language.',
+    };
+    setMessages([welcome]);
+    // New session so DynamoDB history doesn't bleed in
+    const id = `session-${Date.now()}`;
+    const today = new Date().toISOString().split('T')[0];
+    localStorage.setItem('bhasha_session', JSON.stringify({ id, date: today }));
+    sessionIdRef.current = id;
+    try { sessionStorage.removeItem('bhasha_chat_messages'); } catch { /* ignore */ }
   };
 
   const micIcon = () => {
@@ -195,6 +543,30 @@ export default function VoiceTab({ onNavigate }: { onNavigate: (tab: string, dat
   return (
     <div className="flex flex-col h-full">
 
+      {/* ── Top bar ── */}
+      <div className="flex items-center justify-between px-4 pt-2 pb-0 gap-2">
+        {/* Mode toggle */}
+        <div className="flex gap-0.5 p-0.5 bg-surface-2 rounded-lg border border-line">
+          {(['quick', 'deep'] as const).map(m => (
+            <button
+              key={m}
+              onClick={() => setMode(m)}
+              className={`px-2.5 py-1 rounded-md text-xs font-medium transition-all ${
+                mode === m ? 'bg-surface shadow text-ink' : 'text-ink-3'
+              }`}
+            >
+              {m === 'quick' ? '⚡ Quick' : '🔬 Deep'}
+            </button>
+          ))}
+        </div>
+        <button
+          onClick={clearChat}
+          className="text-xs text-ink-3 border border-line rounded-lg px-2.5 py-1 hover:text-ink hover:border-ink-3 transition-colors"
+        >
+          + New Chat
+        </button>
+      </div>
+
       {/* ── Messages ── */}
       <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3 min-h-64">
         {messages.map((msg, i) => (
@@ -210,13 +582,17 @@ export default function VoiceTab({ onNavigate }: { onNavigate: (tab: string, dat
               </div>
             )}
             <div className="flex flex-col gap-1.5">
-              <div className={`max-w-xs px-4 py-3 rounded-2xl text-sm leading-relaxed ${
-                msg.role === 'user'
-                  ? 'bg-primary text-white rounded-tr-sm'
-                  : 'bg-surface text-ink rounded-tl-sm border border-line'
-              }`}>
-                {msg.text}
-              </div>
+              {msg.isDeep && msg.structured ? (
+                <DeepResponseCard msg={msg} onSendSMS={handleSendSMS} onSaveHistory={handleSaveHistory} onFindSpecialist={handleFindSpecialist} />
+              ) : (
+                <div className={`max-w-xs px-4 py-3 rounded-2xl text-sm leading-relaxed ${
+                  msg.role === 'user'
+                    ? 'bg-primary text-white rounded-tr-sm'
+                    : 'bg-surface text-ink rounded-tl-sm border border-line'
+                }`}>
+                  {msg.text}
+                </div>
+              )}
               {msg.action && (
                 <button
                   onClick={() => onNavigate(msg.action!.tab, msg.action!.bookingData)}

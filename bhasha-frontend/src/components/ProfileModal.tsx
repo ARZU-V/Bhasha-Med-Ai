@@ -9,6 +9,7 @@ export type UserProfile = {
   phone: string;
   language: string;
   conditions: string[];
+  history?: string; // free-text medical background
 };
 
 const CONDITIONS = ['Diabetes', 'Blood Pressure', 'Asthma', 'Heart Disease', 'Thyroid', 'Kidney Disease'];
@@ -45,7 +46,7 @@ interface ProfileModalProps {
 }
 
 export default function ProfileModal({ open, onClose, onSave }: ProfileModalProps) {
-  const [form,   setForm]   = useState<UserProfile>({ name: '', age: '', phone: '', language: 'hi', conditions: [] });
+  const [form,   setForm]   = useState<UserProfile>({ name: '', age: '', phone: '', language: 'hi', conditions: [], history: '' });
   const [saving, setSaving] = useState(false);
   const [saved,  setSaved]  = useState(false);
 
@@ -148,6 +149,21 @@ export default function ProfileModal({ open, onClose, onSave }: ProfileModalProp
                     </button>
                   ))}
                 </div>
+              </div>
+
+              {/* Medical History */}
+              <div className="space-y-1.5">
+                <div>
+                  <label className="text-xs font-semibold text-ink-2 uppercase tracking-widest">Medical Background</label>
+                  <p className="text-xs text-ink-3 mt-0.5">Past surgeries, allergies, current medications, family history — AI will remember this</p>
+                </div>
+                <textarea
+                  placeholder="e.g. Had appendix surgery in 2020. Allergic to penicillin. Taking metformin for diabetes. Father had heart disease."
+                  value={form.history || ''}
+                  onChange={e => setForm(p => ({ ...p, history: e.target.value }))}
+                  rows={4}
+                  className="w-full bg-surface-2 border border-line rounded-lg px-3 py-2.5 text-sm text-ink placeholder:text-ink-3 outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition-all resize-none"
+                />
               </div>
 
               {/* Save */}

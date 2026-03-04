@@ -1,35 +1,42 @@
 import { useState, useEffect } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AnimatePresence, motion } from 'framer-motion';
+import DashboardTab     from './tabs/DashboardTab';
 import VoiceTab         from './tabs/VoiceTab';
 import MedicationsTab   from './tabs/MedicationsTab';
 import AppointmentsTab  from './tabs/AppointmentsTab';
 import EmergencyTab     from './tabs/EmergencyTab';
 import TimelineTab      from './tabs/TimelineTab';
 import HospitalTab      from './tabs/HospitalTab';
+import HistoryTab       from './tabs/HistoryTab';
+import NavigatorTab     from './tabs/NavigatorTab';
+import DietTab          from './tabs/DietTab';
 import ProfileModal, { loadProfile, UserProfile } from './components/ProfileModal';
 
 const queryClient = new QueryClient();
 
 const tabs = [
+  { id: 'home',         label: 'Home',    icon: '🏠' },
   { id: 'voice',        label: 'Voice',   icon: '🎙️' },
-  { id: 'medications',  label: 'Meds',    icon: '💊' },
-  { id: 'hospitals',    label: 'Nearby',  icon: '🏥' },
+  { id: 'history',      label: 'History', icon: '🗂️' },
   { id: 'appointments', label: 'Book',    icon: '📅' },
   { id: 'emergency',    label: 'SOS',     icon: '🆘' },
-  { id: 'timeline',     label: 'History', icon: '📋' },
 ];
 
-type BookingPrefill = { doctorName: string; preferredTime: string; patientPhone: string };
+type BookingPrefill = { doctorName: string; preferredTime: string; patientPhone: string; clinicPhone?: string };
 
 export default function App() {
-  const [activeTab,       setActiveTab]       = useState('voice');
-  const [showProfile,     setShowProfile]     = useState(false);
-  const [profile,         setProfile]         = useState<UserProfile | null>(null);
-  const [apptPrefill,     setApptPrefill]     = useState<BookingPrefill | undefined>();
+  const [activeTab,        setActiveTab]        = useState('home');
+  const [showProfile,      setShowProfile]      = useState(false);
+  const [profile,          setProfile]          = useState<UserProfile | null>(null);
+  const [apptPrefill,      setApptPrefill]      = useState<BookingPrefill | undefined>();
+  const [symptomCondition, setSymptomCondition] = useState('');  // passed voice→hospitals
+  const [historyPrefill,   setHistoryPrefill]   = useState<any>(undefined); // voice→history
 
-  const handleNavigate = (tab: string, data?: BookingPrefill) => {
-    if (tab === 'appointments' && data) setApptPrefill(data);
+  const handleNavigate = (tab: string, data?: any) => {
+    if (tab === 'appointments' && data?.doctorName) setApptPrefill(data);
+    if (tab === 'hospitals'    && data?.condition)  setSymptomCondition(data.condition);
+    if (tab === 'history'      && data)              setHistoryPrefill(data);
     setActiveTab(tab);
   };
 
@@ -88,10 +95,14 @@ export default function App() {
               transition={{ duration: 0.15, ease: 'easeOut' }}
               className="h-full"
             >
+              {activeTab === 'home'         && <DashboardTab onNavigate={handleNavigate} />}
               {activeTab === 'voice'        && <VoiceTab onNavigate={handleNavigate} />}
               {activeTab === 'medications'  && <MedicationsTab />}
-              {activeTab === 'hospitals'    && <HospitalTab />}
+              {activeTab === 'hospitals'    && <HospitalTab onNavigate={handleNavigate} symptomCondition={symptomCondition} onConditionUsed={() => setSymptomCondition('')} />}
+              {activeTab === 'history'      && <HistoryTab prefillEntry={historyPrefill} />}
               {activeTab === 'appointments' && <AppointmentsTab prefill={apptPrefill} onPrefillUsed={() => setApptPrefill(undefined)} />}
+              {activeTab === 'navigator'    && <NavigatorTab />}
+              {activeTab === 'diet'         && <DietTab />}
               {activeTab === 'emergency'    && <EmergencyTab />}
               {activeTab === 'timeline'     && <TimelineTab />}
             </motion.div>
