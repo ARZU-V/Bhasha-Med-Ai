@@ -25,6 +25,11 @@ source .env.deploy
 
 # ── Load role ARN (from setup_infra.sh) ──────────────────────────────────────
 
+# Load Bedrock Agent IDs (from setup_bedrock_agent.py)
+if [ -f "scripts/.agent_ids" ]; then
+  source scripts/.agent_ids
+fi
+
 if [ -f "scripts/.role_arn" ]; then
   source scripts/.role_arn
 else
@@ -67,14 +72,13 @@ deploy_lambda() {
   python -c "import zipfile; z=zipfile.ZipFile('../../${FUNC_NAME}.zip','w',zipfile.ZIP_DEFLATED); z.write('lambda_function.py'); z.close()"
   cd ../..
 
-  # Create or update code
-  if aws lambda get-function --function-name "$FUNC_NAME" --region "$REGION" > /dev/null 2>&1; then
-    aws lambda update-function-code \
+  # Try update first; only create if function truly doesn't exist
+  if UPDATE_OUT=$(aws lambda update-function-code \
       --function-name "$FUNC_NAME" \
       --zip-file "fileb://${FUNC_NAME}.zip" \
-      --region "$REGION" > /dev/null
+      --region "$REGION" 2>&1); then
     echo "  code updated"
-  else
+  elif echo "$UPDATE_OUT" | grep -q "ResourceNotFoundException"; then
     aws lambda create-function \
       --function-name "$FUNC_NAME" \
       --runtime "$RUNTIME" \
@@ -84,10 +88,13 @@ deploy_lambda() {
       --timeout "$TIMEOUT" \
       --region "$REGION" > /dev/null
     echo "  created"
-    # Wait for function to be active before setting env vars
     aws lambda wait function-active \
       --function-name "$FUNC_NAME" \
       --region "$REGION" 2>/dev/null || true
+  else
+    echo "  ERROR: $UPDATE_OUT"
+    rm -f "${FUNC_NAME}.zip"
+    exit 1
   fi
 
   rm -f "${FUNC_NAME}.zip"
@@ -196,6 +203,74 @@ if [ -n "$KNOWLEDGE_BASE_ID" ]; then
 fi
 set_env "deep_analysis" "$DEEP_ENV"
 
+# 17. multi_agent  (legacy custom tool-use loop — kept for fallback)
+deploy_lambda "multi-agent" "multi_agent"
+aws lambda update-function-configuration \
+  --function-name "multi-agent" \
+  --timeout 90 \
+  --region "$REGION" > /dev/null
+AGENT_ENV="DYNAMODB_MAIN_TABLE=$MAIN_TABLE,BEDROCK_REGION=us-east-1,APP_REGION=$REGION"
+if [ -n "$GOOGLE_MAPS_API_KEY" ]; then
+  AGENT_ENV="$AGENT_ENV,GOOGLE_MAPS_API_KEY=${GOOGLE_MAPS_API_KEY}"
+fi
+set_env "multi-agent" "$AGENT_ENV"
+
+# 18. bedrock-agent-action  (Action Group Lambda — Bedrock Agent calls this)
+#     Must be deployed to the AGENT_REGION (us-east-1) where the Bedrock Agent lives
+BEDROCK_AGENT_REGION="${BEDROCK_AGENT_REGION:-us-east-1}"
+echo "▶ bedrock-agent-action  (region: $BEDROCK_AGENT_REGION)"
+cd "lambdas/bedrock_agent_action"
+python -c "import zipfile; z=zipfile.ZipFile('../../bedrock-agent-action.zip','w',zipfile.ZIP_DEFLATED); z.write('lambda_function.py'); z.close()"
+cd ../..
+if ACTION_UPDATE=$(aws lambda update-function-code \
+  --function-name "bedrock-agent-action" \
+  --zip-file "fileb://bedrock-agent-action.zip" \
+  --region "$BEDROCK_AGENT_REGION" 2>&1); then
+  echo "  code updated"
+elif echo "$ACTION_UPDATE" | grep -q "ResourceNotFoundException"; then
+  aws lambda create-function \
+    --function-name "bedrock-agent-action" \
+    --runtime "$RUNTIME" \
+    --role "$LAMBDA_ROLE_ARN" \
+    --handler lambda_function.lambda_handler \
+    --zip-file "fileb://bedrock-agent-action.zip" \
+    --timeout 90 \
+    --region "$BEDROCK_AGENT_REGION" > /dev/null
+  echo "  created"
+  aws lambda wait function-active \
+    --function-name "bedrock-agent-action" \
+    --region "$BEDROCK_AGENT_REGION" 2>/dev/null || true
+else
+  echo "  ERROR: $ACTION_UPDATE"
+  rm -f bedrock-agent-action.zip
+  exit 1
+fi
+rm -f bedrock-agent-action.zip
+ACTION_ENV="DYNAMODB_MAIN_TABLE=$MAIN_TABLE,APP_REGION=$REGION,BEDROCK_REGION=$BEDROCK_AGENT_REGION"
+if [ -n "$GOOGLE_MAPS_API_KEY" ]; then
+  ACTION_ENV="$ACTION_ENV,GOOGLE_MAPS_API_KEY=${GOOGLE_MAPS_API_KEY}"
+fi
+aws lambda update-function-configuration \
+  --function-name "bedrock-agent-action" \
+  --environment "Variables={$ACTION_ENV}" \
+  --region "$BEDROCK_AGENT_REGION" > /dev/null
+echo "  env vars set ✅"
+
+# 19. bedrock-agent-invoker  (API Gateway Lambda — frontend calls this)
+deploy_lambda "bedrock-agent-invoker" "bedrock_agent_invoker"
+aws lambda update-function-configuration \
+  --function-name "bedrock-agent-invoker" \
+  --timeout 120 \
+  --region "$REGION" > /dev/null
+INVOKER_ENV="DYNAMODB_MAIN_TABLE=$MAIN_TABLE,APP_REGION=$REGION,BEDROCK_AGENT_REGION=$BEDROCK_AGENT_REGION"
+if [ -n "$BEDROCK_AGENT_ID" ]; then
+  INVOKER_ENV="$INVOKER_ENV,BEDROCK_AGENT_ID=${BEDROCK_AGENT_ID}"
+fi
+if [ -n "$BEDROCK_AGENT_ALIAS_ID" ]; then
+  INVOKER_ENV="$INVOKER_ENV,BEDROCK_AGENT_ALIAS_ID=${BEDROCK_AGENT_ALIAS_ID}"
+fi
+set_env "bedrock-agent-invoker" "$INVOKER_ENV"
+
 # ── Done ──────────────────────────────────────────────────────────────────────
 
 echo ""
@@ -205,12 +280,26 @@ echo "╚═══════════════════════�
 echo ""
 echo "API Gateway: $API_BASE"
 echo ""
-echo "REMAINING MANUAL STEP:"
-echo "  Add POST /deep-analysis route in API Gateway console"
+echo "REMAINING MANUAL STEPS (API Gateway console):"
 echo "  → Console → API Gateway → 4zu47eekcg → Resources"
-echo "  → Create Resource: /deep-analysis"
-echo "  → Create Method: POST → Lambda: deep-analysis"
-echo "  → Enable CORS → Deploy to Prod stage"
+echo ""
+echo "  1. POST /deep-analysis → Lambda: deep_analysis"
+echo "     Enable CORS, deploy to Prod"
+echo ""
+echo "  2. POST /multi-agent        → Lambda: multi-agent   (legacy, timeout: 90s)"
+echo "     GET  /multi-agent        → Lambda: multi-agent"
+echo ""
+echo "  3. POST /bedrock-agent      → Lambda: bedrock-agent-invoker  (timeout: 120s)"
+echo "     GET  /bedrock-agent      → Lambda: bedrock-agent-invoker"
+echo "     Enable CORS on all routes, deploy to Prod"
+echo ""
+echo "  IMPORTANT: API Gateway integration timeout is max 29s."
+echo "  For bedrock-agent (takes 60-90s), use a Lambda Function URL:"
+echo "    Console → Lambda → bedrock-agent-invoker → Configuration → Function URL"
+echo "    Auth type: NONE, CORS: enabled"
+echo "  Then update frontend config.ts: BEDROCK_AGENT_URL = <function-url>"
+echo ""
+echo "  Run setup first (if not done): python scripts/setup_bedrock_agent.py"
 echo ""
 if [ -z "$KNOWLEDGE_BASE_ID" ]; then
   echo "⚠️  KNOWLEDGE_BASE_ID not set — deep-analysis runs in fallback (direct Claude) mode."

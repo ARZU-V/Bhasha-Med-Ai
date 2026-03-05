@@ -5,12 +5,12 @@ import { loadProfile } from '../components/ProfileModal';
 type LastChat = { userQuestion: string; preview: string; timestamp: string };
 
 const FEATURES = [
+  { id: 'agents',       icon: '🤖', title: 'AI Agents',        desc: 'Diagnose + Find Doctor',    bg: 'bg-indigo-500/8',     border: 'border-indigo-500/20',     text: 'text-indigo-600' },
   { id: 'voice',        icon: '🎙️', title: 'AI Chat',         desc: 'Any Indian language',       bg: 'bg-primary/8',        border: 'border-primary/20',        text: 'text-primary'    },
   { id: 'hospitals',    icon: '🏥', title: 'Find Hospitals',   desc: 'Nearby & specialists',      bg: 'bg-success/8',        border: 'border-success/20',        text: 'text-success'    },
   { id: 'history',      icon: '🗂️', title: 'Health History',  desc: 'Your medical timeline',     bg: 'bg-amber-500/8',      border: 'border-amber-500/20',      text: 'text-amber-600'  },
   { id: 'appointments', icon: '📅', title: 'Book Appt',        desc: 'Schedule doctors',          bg: 'bg-violet-500/8',     border: 'border-violet-500/20',     text: 'text-violet-600' },
   { id: 'diet',         icon: '🥗', title: 'Diet Chart',       desc: 'Eat right for health',      bg: 'bg-lime-500/8',       border: 'border-lime-500/20',       text: 'text-lime-600'   },
-  { id: 'navigator',    icon: '🤝', title: 'Hospital Guide',   desc: 'Human escort service',      bg: 'bg-sky-500/8',        border: 'border-sky-500/20',        text: 'text-sky-600'    },
 ];
 
 function timeAgo(iso: string) {

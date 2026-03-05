@@ -11,6 +11,7 @@ import HospitalTab      from './tabs/HospitalTab';
 import HistoryTab       from './tabs/HistoryTab';
 import NavigatorTab     from './tabs/NavigatorTab';
 import DietTab          from './tabs/DietTab';
+import AgentTab         from './tabs/AgentTab';
 import ProfileModal, { loadProfile, UserProfile } from './components/ProfileModal';
 
 const queryClient = new QueryClient();
@@ -103,6 +104,7 @@ export default function App() {
               {activeTab === 'appointments' && <AppointmentsTab prefill={apptPrefill} onPrefillUsed={() => setApptPrefill(undefined)} />}
               {activeTab === 'navigator'    && <NavigatorTab />}
               {activeTab === 'diet'         && <DietTab />}
+              {activeTab === 'agents'       && <AgentTab />}
               {activeTab === 'emergency'    && <EmergencyTab />}
               {activeTab === 'timeline'     && <TimelineTab />}
             </motion.div>
