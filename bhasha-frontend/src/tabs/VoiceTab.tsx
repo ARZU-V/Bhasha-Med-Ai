@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import axios from 'axios';
-import { API_BASE, DEMO_USER_ID } from '../config';
+import { API_BASE, BEDROCK_AGENT_URL, DEMO_USER_ID } from '../config';
 import { loadProfile } from '../components/ProfileModal';
 
 type BookingData = { doctorName?: string; preferredTime?: string; patientPhone?: string; condition?: string; [key: string]: any };
@@ -438,24 +438,58 @@ export default function VoiceTab({ onNavigate }: { onNavigate: (tab: string, dat
     setStatus('thinking');
     setProcessingLabel('Analysing with AI + Medical KB…');
     try {
-      const { data } = await axios.post(`${API_BASE}/deep-analysis`, {
-        question: text,
+      const { data } = await axios.post(BEDROCK_AGENT_URL, {
+        symptoms: text,
         language: langCode,
         userConditions: profile?.conditions || [],
         userId: profile?.name ? `user-${profile.name}` : DEMO_USER_ID,
         phone: profile?.phone || '',
+        lat: 28.6139,
+        lng: 77.2090,
       });
+
+      // Map Lambda agent response → DeepStructured
+      const dx = data.agents?.diagnosis || {};
+      const ranking = data.agents?.ranker || {};
+      const visitPrep = ranking.visit_prep || {};
+      const urgency: 'emergency' | 'urgent' | 'routine' =
+        dx.urgency === 'emergency' ? 'emergency' :
+        dx.urgency === 'urgent' ? 'urgent' : 'routine';
+      const timeframe =
+        urgency === 'emergency' ? 'Go to emergency NOW' :
+        urgency === 'urgent'    ? 'Within 24 hours' : 'Within the next few days';
+
+      const structured: DeepStructured = {
+        summary: data.orchestrator_summary || dx.condition || 'Analysis complete',
+        possible_conditions: dx.condition ? [{
+          name: dx.condition,
+          likelihood: dx.severity === 'severe' ? 'high' : dx.severity === 'moderate' ? 'moderate' : 'low',
+          brief: dx.deep_analysis || '',
+        }] : [],
+        urgency,
+        urgency_reason: dx.urgency_reason || '',
+        doctor_roadmap: {
+          see_first: dx.specialty_needed || 'General Physician',
+          timeframe,
+          if_referred: ranking.recommended_hospital?.name,
+        },
+        action_steps: dx.action_steps || [],
+        tests_to_ask: visitPrep.what_to_bring || [],
+        red_flags: dx.red_flags || [],
+        self_care: [],
+        questions_for_doctor: visitPrep.questions_to_ask || [],
+      };
+
       setMessages(prev => [...prev, {
         role: 'assistant',
-        text: data.structured?.summary || data.answer || '',
+        text: structured.summary,
         isDeep: true,
-        structured: data.structured,
-        symptoms_detected: data.symptoms_detected || [],
-        sources: data.sources || [],
-        imageAnalysis: data.imageAnalysis,
+        structured,
+        symptoms_detected: [],
+        sources: [],
       }]);
-      // Auto-navigate if urgency is emergency
-      if (data.structured?.urgency === 'emergency') {
+
+      if (urgency === 'emergency') {
         setTimeout(() => onNavigate('emergency'), 1500);
       }
     } catch {

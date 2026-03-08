@@ -5,18 +5,19 @@ import { loadProfile } from '../components/ProfileModal';
 type LastChat = { userQuestion: string; preview: string; timestamp: string };
 
 const FEATURES = [
-  { id: 'agents',       icon: '🤖', title: 'AI Agents',        desc: 'Diagnose + Find Doctor',    bg: 'bg-indigo-500/8',     border: 'border-indigo-500/20',     text: 'text-indigo-600' },
-  { id: 'voice',        icon: '🎙️', title: 'AI Chat',         desc: 'Any Indian language',       bg: 'bg-primary/8',        border: 'border-primary/20',        text: 'text-primary'    },
-  { id: 'hospitals',    icon: '🏥', title: 'Find Hospitals',   desc: 'Nearby & specialists',      bg: 'bg-success/8',        border: 'border-success/20',        text: 'text-success'    },
-  { id: 'history',      icon: '🗂️', title: 'Health History',  desc: 'Your medical timeline',     bg: 'bg-amber-500/8',      border: 'border-amber-500/20',      text: 'text-amber-600'  },
-  { id: 'appointments', icon: '📅', title: 'Book Appt',        desc: 'Schedule doctors',          bg: 'bg-violet-500/8',     border: 'border-violet-500/20',     text: 'text-violet-600' },
-  { id: 'diet',         icon: '🥗', title: 'Diet Chart',       desc: 'Eat right for health',      bg: 'bg-lime-500/8',       border: 'border-lime-500/20',       text: 'text-lime-600'   },
+  { id: 'agents', icon: '🤖', title: 'AI Agents', desc: 'Diagnose + Find Doctor', bg: 'bg-indigo-500/8', border: 'border-indigo-500/20', text: 'text-indigo-600' },
+  { id: 'voice', icon: '🎙️', title: 'AI Chat', desc: 'Any Indian language', bg: 'bg-primary/8', border: 'border-primary/20', text: 'text-primary' },
+  { id: 'navigator', icon: '🧭', title: 'Navigator', desc: 'Explore Medical Info', bg: 'bg-cyan-500/8', border: 'border-cyan-500/20', text: 'text-cyan-600' },
+  { id: 'hospitals', icon: '🏥', title: 'Find Hospitals', desc: 'Nearby & specialists', bg: 'bg-success/8', border: 'border-success/20', text: 'text-success' },
+  { id: 'history', icon: '🗂️', title: 'Health History', desc: 'Your medical timeline', bg: 'bg-amber-500/8', border: 'border-amber-500/20', text: 'text-amber-600' },
+  { id: 'appointments', icon: '📅', title: 'Book Appt', desc: 'Schedule doctors', bg: 'bg-violet-500/8', border: 'border-violet-500/20', text: 'text-violet-600' },
+  { id: 'diet', icon: '🥗', title: 'Diet Chart', desc: 'Eat right for health', bg: 'bg-lime-500/8', border: 'border-lime-500/20', text: 'text-lime-600' },
 ];
 
 function timeAgo(iso: string) {
   const diff = Date.now() - new Date(iso).getTime();
-  const m    = Math.floor(diff / 60000);
-  if (m < 1)  return 'just now';
+  const m = Math.floor(diff / 60000);
+  if (m < 1) return 'just now';
   if (m < 60) return `${m}m ago`;
   const h = Math.floor(m / 60);
   if (h < 24) return `${h}h ago`;
@@ -31,14 +32,14 @@ function greeting() {
 }
 
 export default function DashboardTab({ onNavigate }: { onNavigate: (tab: string) => void }) {
-  const profile  = loadProfile();
+  const profile = loadProfile();
   const [lastChat, setLastChat] = useState<LastChat | null>(null);
 
   useEffect(() => {
     try {
       const s = localStorage.getItem('bhasha_last_chat');
       if (s) setLastChat(JSON.parse(s));
-    } catch {}
+    } catch { }
   }, []);
 
   const firstName = profile?.name?.split(' ')[0] || '';

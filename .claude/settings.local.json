@@ -1,7 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "Bash(py -3 -c \":*)"
+      "Bash(py -3 -c \":*)",
+      "Bash(aws lambda update-function-code --function-name bedrock_agent_invoker --zip-file fileb://c:/Users/arjit/Code_Folder/bhasha-med-ai/bhasha-backend/lambdas/bedrock_agent_invoker/invoker.zip --region ap-south-1 --query 'FunctionName' --output text)"
     ]
   }
 }

@@ -600,6 +600,14 @@ export default function AgentTab() {
                     </div>
                   </div>
 
+                  {/* Deep Analysis */}
+                  {(d as any).deep_analysis && (
+                    <div className="bg-blue-50 border border-blue-200 rounded-xl px-3.5 py-3">
+                      <p className="text-xs font-semibold text-blue-700 mb-1.5">🔬 Clinical Analysis</p>
+                      <p className="text-xs text-ink-2 leading-relaxed">{(d as any).deep_analysis}</p>
+                    </div>
+                  )}
+
                   {/* Image analysis */}
                   {d.image_analysis && (
                     <div className="bg-surface-2 border border-line rounded-xl px-3.5 py-3">
